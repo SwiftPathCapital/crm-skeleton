@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "build:web": "vite build --config vite.web.config.js",
     "preview": "electron-vite preview",
     "build:win": "npm run build && electron-builder --win"
   },

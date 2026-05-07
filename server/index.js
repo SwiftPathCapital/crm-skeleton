@@ -15,6 +15,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+app.use(express.static(path.join(__dirname, 'dist')));
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', number: fromNumber });
@@ -98,6 +99,10 @@ app.post('/sms', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.response && err.response.data || err.message });
   }
+});
+
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
 app.listen(3001, () => {
