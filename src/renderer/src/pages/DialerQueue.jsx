@@ -102,25 +102,13 @@ export default function DialerQueue() {
     return () => clearInterval(timerRef.current);
   }, [callState]);
 
-  const handleDial = async () => {
+  const handleDial = () => {
     if (!currentLead) return;
     setCallState("calling");
     const digits = currentLead.phone.replace(/\D/g, "");
     const to = digits.startsWith("1") ? `+${digits}` : `+1${digits}`;
-    try {
-      const res = await fetch("/call", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to }),
-      });
-      if (res.ok) {
-        setCallState("connected");
-      } else {
-        setCallState("idle");
-      }
-    } catch {
-      setCallState("idle");
-    }
+    window.location.href = 'tel:' + to;
+    setCallState("connected");
   };
 
   const handleHangUp = () => {
