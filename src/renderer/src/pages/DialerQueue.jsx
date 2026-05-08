@@ -107,7 +107,6 @@ export default function DialerQueue() {
     setCallState("calling");
     const digits = currentLead.phone.replace(/\D/g, "");
     const to = digits.startsWith("1") ? `+${digits}` : `+1${digits}`;
-    window.location.href = 'zoiper5:' + to;
     try {
       const res = await fetch("/call", {
         method: "POST",
