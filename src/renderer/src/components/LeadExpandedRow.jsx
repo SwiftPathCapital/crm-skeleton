@@ -161,7 +161,7 @@ export default function LeadExpandedRow({ lead, onSave }) {
     if (!lead.phone || dialing) return;
     setDialing(true);
     try {
-      await fetch("http://localhost:3001/call", {
+      await fetch("/call", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ to: lead.phone }),

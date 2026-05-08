@@ -72,7 +72,7 @@ export default function DialerQueue() {
 
   const checkHealth = useCallback(async () => {
     try {
-      const res = await fetch("http://localhost:3001/health", {
+      const res = await fetch("/health", {
         signal: AbortSignal.timeout(3000),
       });
       setServerOnline(res.ok);
@@ -109,7 +109,7 @@ export default function DialerQueue() {
     const to = digits.startsWith("1") ? `+${digits}` : `+1${digits}`;
     window.location.href = 'zoiper5:' + to;
     try {
-      const res = await fetch("http://localhost:3001/call", {
+      const res = await fetch("/call", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ to }),
@@ -154,7 +154,7 @@ export default function DialerQueue() {
 
   const handleSms = async () => {
     if (!currentLead || !smsBody.trim()) return;
-    await fetch("http://localhost:3001/sms", {
+    await fetch("/sms", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ to: currentLead.phone, body: smsBody }),
