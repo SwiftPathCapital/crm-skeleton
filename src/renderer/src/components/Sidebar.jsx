@@ -76,17 +76,7 @@ export default function Sidebar({ activeView, setActiveView, agent }) {
   return (
     <aside className="w-64 min-h-screen bg-[#0f1117] border-r border-[#1e2130] flex flex-col">
       <div className="px-6 py-5 border-b border-[#1e2130]">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#c9a84c] to-[#e8c96d] flex items-center justify-center">
-            <svg className="w-4 h-4 text-[#080b10]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-          </div>
-          <div>
-            <p className="text-white font-bold text-sm tracking-wide">SWIFT PATH</p>
-            <p className="text-[#4a5568] text-xs">Capital CRM</p>
-          </div>
-        </div>
+        <img src="../assets/logo.png" height="60" style={{ width: "auto", objectFit: "contain" }} alt="Swift Path Capital" />
       </div>
 
       <div className="px-6 py-4 border-b border-[#1e2130]">
