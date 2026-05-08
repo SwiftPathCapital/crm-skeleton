@@ -1,6 +1,7 @@
 // src/renderer/src/components/Sidebar.jsx
 import React from "react";
 import { supabase } from "../lib/supabaseClient";
+import logo from "../assets/logo.png";
 
 const navItems = [
   {
@@ -76,7 +77,7 @@ export default function Sidebar({ activeView, setActiveView, agent }) {
   return (
     <aside className="w-64 min-h-screen bg-[#0f1117] border-r border-[#1e2130] flex flex-col">
       <div className="px-6 py-5 border-b border-[#1e2130]">
-        <img src="../assets/logo.png" height="60" style={{ width: "auto", objectFit: "contain" }} alt="Swift Path Capital" />
+        <img src={logo} height="60" style={{ width: "auto", objectFit: "contain" }} alt="Swift Path Capital" />
       </div>
 
       <div className="px-6 py-4 border-b border-[#1e2130]">
