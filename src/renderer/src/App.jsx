@@ -5,6 +5,8 @@ import MyLeads from "./pages/MyLeads";
 import DialerQueue from "./pages/DialerQueue";
 import AdminDashboard from "./pages/AdminDashboard";
 import AgentManagement from "./pages/AgentManagement";
+import DealPipeline from "./pages/DealPipeline";
+import Clients from "./pages/Clients";
 import Login from "./pages/Login";
 import { supabase } from "./lib/supabaseClient";
 
@@ -137,6 +139,10 @@ export default function App() {
         return agent.role === "admin" ? <AdminDashboard /> : <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} />;
       case "agent-management":
         return agent.role === "admin" ? <AgentManagement /> : <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} />;
+      case "deal-pipeline":
+        return agent.role === "admin" ? <DealPipeline agent={agent} /> : <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} />;
+      case "clients":
+        return agent.role === "admin" ? <Clients agent={agent} /> : <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} />;
       default:
         return <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} />;
     }
