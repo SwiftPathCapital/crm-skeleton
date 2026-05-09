@@ -23,8 +23,8 @@ app.post('/voice', (req, res) => {
     '<Response>' +
       '<Dial timeout="30">' +
         '<Sip>sip:Glenn2800@rtc.telnyx.com</Sip>' +
-        '<Sip>sip:Brentzoiper@rtc.telnyx.com</Sip>' +
-        '<Sip>sip:useradmin23894@rtc.telnyx.com</Sip>' +
+        '<Sip>sip:Brent2800@rtc.telnyx.com</Sip>' +
+        '<Sip>sip:Jordan2800@rtc.telnyx.com</Sip>' +
       '</Dial>' +
     '</Response>'
   );
