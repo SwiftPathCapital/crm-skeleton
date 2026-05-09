@@ -18,7 +18,16 @@ app.get('/health', (req, res) => {
 
 app.post('/voice', (req, res) => {
   res.type('text/xml');
-  res.send('<Response><Dial></Dial></Response>');
+  res.send(
+    '<?xml version="1.0" encoding="UTF-8"?>' +
+    '<Response>' +
+      '<Dial>' +
+        '<Sip>sip:Glenn2800@rtc.telnyx.com</Sip>' +
+        '<Sip>sip:Brentzoiper@rtc.telnyx.com</Sip>' +
+        '<Sip>sip:useradmin23894@rtc.telnyx.com</Sip>' +
+      '</Dial>' +
+    '</Response>'
+  );
 });
 
 app.post('/sms', async (req, res) => {
