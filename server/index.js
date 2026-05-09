@@ -21,7 +21,7 @@ app.post('/voice', (req, res) => {
   res.send(
     '<?xml version="1.0" encoding="UTF-8"?>' +
     '<Response>' +
-      '<Dial>' +
+      '<Dial timeout="30">' +
         '<Sip>sip:Glenn2800@rtc.telnyx.com</Sip>' +
         '<Sip>sip:Brentzoiper@rtc.telnyx.com</Sip>' +
         '<Sip>sip:useradmin23894@rtc.telnyx.com</Sip>' +
