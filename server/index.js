@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const axios = require('axios');
+const ws = require('ws');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
@@ -10,7 +11,8 @@ const API_KEY = process.env.TELNYX_API_KEY;
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL,
-  process.env.VITE_SUPABASE_ANON_KEY
+  process.env.VITE_SUPABASE_ANON_KEY,
+  { realtime: { transport: ws } }
 );
 
 const SIP_AGENT_MAP = { Glenn2800: 'Glenn', Brent2800: 'Brent', Jordan2800: 'Jordan' };
