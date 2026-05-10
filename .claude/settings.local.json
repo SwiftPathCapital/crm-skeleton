@@ -3,7 +3,14 @@
     "allow": [
       "PowerShell(Get-ChildItem \"C:\\\\Users\\\\free2\\\\OneDrive\\\\Desktop\\\\crm-skeleton\" | Where-Object { $_.Name -ne \"node_modules\" } | Select-Object Name)",
       "PowerShell(Get-ChildItem \"C:\\\\Users\\\\free2\\\\OneDrive\\\\Desktop\\\\crm-skeleton\" -Exclude \"node_modules\" | ForEach-Object { $_.Name })",
-      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\free2\\\\OneDrive\\\\Desktop\\\\crm-skeleton\\\\server\" -Exclude \"node_modules\" | ForEach-Object { $_.Name })"
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\free2\\\\OneDrive\\\\Desktop\\\\crm-skeleton\\\\server\" -Exclude \"node_modules\" | ForEach-Object { $_.Name })",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "WebFetch(domain:developers.telnyx.com)",
+      "WebFetch(domain:support.telnyx.com)",
+      "WebSearch",
+      "Bash(npm install *)"
     ]
   }
 }
