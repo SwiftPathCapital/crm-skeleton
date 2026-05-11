@@ -748,7 +748,7 @@ function WebformScript() {
     // 6: Final Hand-off
     <div>
       <SectionHeader badge="Step 04" title="Final Hand-off & Contact Info" desc="Close clean — confident, not explanatory." accentColor={accentGreen} />
-      <ScriptBlock label="Close Script" labelColor={accentGreen} note="\"You've got my direct number\" does more than give them contact info — it positions you as their advocate inside the company, not just another rep who handed them a link.">
+      <ScriptBlock label="Close Script" labelColor={accentGreen} note={'"You\'ve got my direct number" does more than give them contact info — it positions you as their advocate inside the company, not just another rep who handed them a link.'}>
         From here, three steps:<br/><br/>
         <strong>One:</strong> Check your texts. Open the application link, confirm your info, and sign at the bottom. Then open the upload link and drop in your last 4 months of business bank statements.<br/><br/>
         <strong>Two:</strong> The Director gets to work. The moment your file is complete he starts submitting to his network of institutional and private funders and lenders and negotiating your rates down before the call.<br/><br/>
