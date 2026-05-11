@@ -69,7 +69,10 @@ app.get('/api/active-calls', async (req, res) => {
     });
     res.json(response.data);
   } catch (err) {
-    res.status(500).json({ error: err.response && err.response.data || err.message });
+    console.error('[active-calls] status:', err.response?.status);
+    console.error('[active-calls] body:', JSON.stringify(err.response?.data));
+    console.error('[active-calls] message:', err.message);
+    res.status(500).json({ error: err.response?.data || err.message });
   }
 });
 
@@ -81,7 +84,10 @@ app.get('/api/recordings', async (req, res) => {
     });
     res.json(response.data);
   } catch (err) {
-    res.status(500).json({ error: err.response && err.response.data || err.message });
+    console.error('[recordings] status:', err.response?.status);
+    console.error('[recordings] body:', JSON.stringify(err.response?.data));
+    console.error('[recordings] message:', err.message);
+    res.status(500).json({ error: err.response?.data || err.message });
   }
 });
 
@@ -157,4 +163,5 @@ app.get('*', (req, res) => {
 
 app.listen(3001, () => {
   console.log('Server running on port 3001');
+  console.log('TELNYX_API_KEY:', API_KEY ? `set (${API_KEY.slice(0, 8)}...)` : 'MISSING');
 });
