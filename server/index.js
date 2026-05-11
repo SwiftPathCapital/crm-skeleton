@@ -63,11 +63,17 @@ app.post('/sms', async (req, res) => {
 });
 
 app.get('/api/active-calls', async (req, res) => {
+  const CONNECTION_IDS = ['2950311615590827625', '2950540692578895477'];
   try {
-    const response = await axios.get('https://api.telnyx.com/v2/calls', {
-      headers: { Authorization: 'Bearer ' + API_KEY }
-    });
-    res.json(response.data);
+    const results = await Promise.all(
+      CONNECTION_IDS.map(id =>
+        axios.get(`https://api.telnyx.com/v2/calls?connection_id=${id}`, {
+          headers: { Authorization: 'Bearer ' + API_KEY }
+        })
+      )
+    );
+    const data = results.flatMap(r => r.data?.data || []);
+    res.json({ data });
   } catch (err) {
     console.error('[active-calls] status:', err.response?.status);
     console.error('[active-calls] body:', JSON.stringify(err.response?.data));
@@ -80,9 +86,9 @@ app.get('/api/recordings', async (req, res) => {
   try {
     const response = await axios.get('https://api.telnyx.com/v2/recordings', {
       headers: { Authorization: 'Bearer ' + API_KEY },
-      params: { 'page[size]': 50, sort: '-created_at' }
+      params: { 'page[size]': 50 }
     });
-    res.json(response.data);
+    res.json({ data: response.data?.data || [] });
   } catch (err) {
     console.error('[recordings] status:', err.response?.status);
     console.error('[recordings] body:', JSON.stringify(err.response?.data));
