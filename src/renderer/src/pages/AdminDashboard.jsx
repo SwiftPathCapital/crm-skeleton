@@ -31,14 +31,105 @@ function LiveTimer({ startTime }) {
   return <span className="font-mono text-emerald-400">{formatDuration(secs)}</span>;
 }
 
+const DISPOSITIONS = ["completed", "no answer", "voicemail", "not interested", "callback", "converted"];
+
+function EditModal({ call, onClose, onSave }) {
+  const [form, setForm] = useState({
+    agent_id: call.agent_id || "",
+    lead_phone: call.lead_phone || "",
+    disposition: call.disposition || "",
+  });
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await onSave(call.id, {
+        agent_id: form.agent_id || null,
+        lead_phone: form.lead_phone || null,
+        disposition: form.disposition || null,
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="bg-[#0d1117] border border-[#1e2130] rounded-xl p-6 w-full max-w-md shadow-2xl">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-white font-semibold text-base">Edit Call Record</h3>
+          <button onClick={onClose} className="text-[#4a5568] hover:text-white transition-colors">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          {[
+            { label: "Agent Name", key: "agent_id", placeholder: "e.g. Glenn", type: "text" },
+            { label: "Lead Phone", key: "lead_phone", placeholder: "+13055551234", type: "text" },
+          ].map(({ label, key, placeholder, type }) => (
+            <div key={key}>
+              <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider block mb-2">
+                {label}
+              </label>
+              <input
+                type={type}
+                value={form[key]}
+                onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+                placeholder={placeholder}
+                className="w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a84c] transition-colors"
+              />
+            </div>
+          ))}
+
+          <div>
+            <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider block mb-2">
+              Disposition
+            </label>
+            <select
+              value={form.disposition}
+              onChange={e => setForm(f => ({ ...f, disposition: e.target.value }))}
+              className="w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a84c] transition-colors"
+            >
+              <option value="">— Select —</option>
+              {DISPOSITIONS.map(d => (
+                <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="flex gap-3 mt-6">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-5 py-2 bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] text-sm font-semibold rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+          <button
+            onClick={onClose}
+            className="px-5 py-2 bg-[#1e2130] text-[#8892a4] text-sm rounded-lg hover:text-white transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
   const [activeCalls, setActiveCalls] = useState([]);
   const [callHistory, setCallHistory] = useState([]);
   const [syncing, setSyncing] = useState(false);
   const [playingId, setPlayingId] = useState(null);
+  const [editingCall, setEditingCall] = useState(null);
   const audioRef = useRef(null);
 
-  // Poll active calls every 5 seconds
   useEffect(() => {
     let live = true;
     async function poll() {
@@ -103,7 +194,14 @@ export default function AdminDashboard() {
     }
   }
 
-  // Group legs by session so each call = one row
+  async function handleSaveEdit(id, updates) {
+    await supabase.from("calls").update(updates).eq("id", id);
+    setCallHistory(prev =>
+      prev.map(c => (c.id === id ? { ...c, ...updates } : c))
+    );
+    setEditingCall(null);
+  }
+
   const displayCalls = (() => {
     const map = {};
     for (const call of activeCalls) {
@@ -170,18 +268,14 @@ export default function AdminDashboard() {
             <tbody>
               {displayCalls.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="text-center text-[#4a5568] text-sm py-8">
-                    No active calls
-                  </td>
+                  <td colSpan={4} className="text-center text-[#4a5568] text-sm py-8">No active calls</td>
                 </tr>
               ) : (
                 displayCalls.map((call) => (
                   <tr key={call.id} className="border-b border-[#1e2130] last:border-0 hover:bg-[#111520]">
                     <td className="px-4 py-3 text-white font-medium">{call.agent || "—"}</td>
                     <td className="px-4 py-3 text-[#8892a4] font-mono text-xs">{call.leadPhone || "—"}</td>
-                    <td className="px-4 py-3">
-                      <LiveTimer startTime={call.startTime} />
-                    </td>
+                    <td className="px-4 py-3"><LiveTimer startTime={call.startTime} /></td>
                     <td className="px-4 py-3">
                       <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                         {call.state || "active"}
@@ -218,15 +312,15 @@ export default function AdminDashboard() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-[#0f1117] border-b border-[#1e2130]">
-                {["Date", "Agent", "Lead Phone", "Duration", "Disposition", "Recording"].map((h) => (
-                  <th key={h} className="text-left text-[#4a5568] font-semibold text-xs uppercase tracking-wider px-4 py-3">{h}</th>
+                {["Date", "Agent", "Lead Phone", "Duration", "Disposition", "Recording", ""].map((h, i) => (
+                  <th key={i} className="text-left text-[#4a5568] font-semibold text-xs uppercase tracking-wider px-4 py-3">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {callHistory.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center text-[#4a5568] text-sm py-8">
+                  <td colSpan={7} className="text-center text-[#4a5568] text-sm py-8">
                     No call history. Click "Sync Recordings" to import from Telnyx.
                   </td>
                 </tr>
@@ -266,6 +360,17 @@ export default function AdminDashboard() {
                         <span className="text-[#4a5568] text-xs">—</span>
                       )}
                     </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => setEditingCall(call)}
+                        className="text-[#4a5568] hover:text-white transition-colors"
+                        title="Edit record"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}
@@ -275,6 +380,14 @@ export default function AdminDashboard() {
       </div>
 
       <audio ref={audioRef} onEnded={() => setPlayingId(null)} />
+
+      {editingCall && (
+        <EditModal
+          call={editingCall}
+          onClose={() => setEditingCall(null)}
+          onSave={handleSaveEdit}
+        />
+      )}
     </div>
   );
 }
