@@ -84,11 +84,34 @@ app.get('/api/active-calls', async (req, res) => {
 
 app.get('/api/recordings', async (req, res) => {
   try {
-    const response = await axios.get('https://api.telnyx.com/v2/recordings', {
+    const listRes = await axios.get('https://api.telnyx.com/v2/recordings', {
       headers: { Authorization: 'Bearer ' + API_KEY },
       params: { 'page[size]': 50 }
     });
-    res.json({ data: response.data?.data || [] });
+    const recordings = listRes.data?.data || [];
+
+    // Fetch full detail for each recording in parallel to get download_url, from, to
+    const detailed = await Promise.all(
+      recordings.map(async rec => {
+        try {
+          const detailRes = await axios.get(`https://api.telnyx.com/v2/recordings/${rec.id}`, {
+            headers: { Authorization: 'Bearer ' + API_KEY }
+          });
+          const d = detailRes.data?.data || {};
+          return {
+            ...rec,
+            download_url: d.download_urls?.mp3 || d.download_url || null,
+            from: d.from || rec.from || null,
+            to: d.to || rec.to || null,
+          };
+        } catch (detailErr) {
+          console.error(`[recordings] detail fetch failed for ${rec.id}:`, detailErr.message);
+          return { ...rec, download_url: null, from: null, to: null };
+        }
+      })
+    );
+
+    res.json({ data: detailed });
   } catch (err) {
     console.error('[recordings] status:', err.response?.status);
     console.error('[recordings] body:', JSON.stringify(err.response?.data));
