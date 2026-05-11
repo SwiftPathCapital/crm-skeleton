@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "../lib/supabaseClient";
 
 const SIP_AGENT_MAP = {
@@ -126,9 +126,7 @@ export default function AdminDashboard() {
   const [activeCalls, setActiveCalls] = useState([]);
   const [callHistory, setCallHistory] = useState([]);
   const [syncing, setSyncing] = useState(false);
-  const [playingId, setPlayingId] = useState(null);
   const [editingCall, setEditingCall] = useState(null);
-  const audioRef = useRef(null);
 
   useEffect(() => {
     let live = true;
@@ -170,27 +168,13 @@ export default function AdminDashboard() {
           lead_phone: null,
           duration: Math.round((rec.duration_millis || 0) / 1000),
           disposition: "completed",
-          recording_url: rec.download_urls?.mp3 || null,
+          recording_url: rec.download_url || rec.download_urls?.mp3 || null,
           created_at: rec.created_at,
         }, { onConflict: "telnyx_recording_id" });
       }
       await loadHistory();
     } finally {
       setSyncing(false);
-    }
-  }
-
-  function handlePlay(id, url) {
-    if (playingId === id) {
-      audioRef.current?.pause();
-      setPlayingId(null);
-    } else {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = url;
-        audioRef.current.play().catch(() => {});
-        setPlayingId(id);
-      }
     }
   }
 
@@ -347,15 +331,24 @@ export default function AdminDashboard() {
                     </td>
                     <td className="px-4 py-3">
                       {call.recording_url ? (
-                        <button
-                          onClick={() => handlePlay(call.id, call.recording_url)}
-                          className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors"
-                        >
-                          <span className="w-6 h-6 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-[9px]">
-                            {playingId === call.id ? "■" : "▶"}
-                          </span>
-                          {playingId === call.id ? "Stop" : "Play"}
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <audio
+                            controls
+                            preload="none"
+                            src={call.recording_url}
+                            className="h-8 max-w-[180px]"
+                          />
+                          <a
+                            href={call.recording_url}
+                            download
+                            className="text-[#4a5568] hover:text-white transition-colors flex-shrink-0"
+                            title="Download recording"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                          </a>
+                        </div>
                       ) : (
                         <span className="text-[#4a5568] text-xs">—</span>
                       )}
@@ -378,8 +371,6 @@ export default function AdminDashboard() {
           </table>
         </div>
       </div>
-
-      <audio ref={audioRef} onEnded={() => setPlayingId(null)} />
 
       {editingCall && (
         <EditModal
