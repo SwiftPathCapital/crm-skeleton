@@ -10,7 +10,8 @@
       "WebFetch(domain:developers.telnyx.com)",
       "WebFetch(domain:support.telnyx.com)",
       "WebSearch",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(git commit *)"
     ]
   }
 }

@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../lib/supabaseClient";
 
-const SERVER = "http://localhost:3001";
-
 const SIP_AGENT_MAP = {
   Glenn2800: "Glenn",
   Brent2800: "Brent",
@@ -45,7 +43,7 @@ export default function AdminDashboard() {
     let live = true;
     async function poll() {
       try {
-        const r = await fetch(`${SERVER}/api/active-calls`);
+        const r = await fetch(`/api/active-calls`);
         if (r.ok && live) {
           const json = await r.json();
           setActiveCalls(json.data || []);
@@ -71,7 +69,7 @@ export default function AdminDashboard() {
   async function syncRecordings() {
     setSyncing(true);
     try {
-      const r = await fetch(`${SERVER}/api/recordings`);
+      const r = await fetch(`/api/recordings`);
       if (!r.ok) return;
       const { data: recs } = await r.json();
       for (const rec of recs || []) {
