@@ -15,7 +15,6 @@ const supabase = createClient(
   { realtime: { transport: ws } }
 );
 
-const SIP_AGENT_MAP = { Glenn2800: 'Glenn', Brent2800: 'Brent', Jordan2800: 'Jordan' };
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -30,13 +29,7 @@ app.post('/voice', (req, res) => {
   res.type('text/xml');
   res.send(
     '<?xml version="1.0" encoding="UTF-8"?>' +
-    '<Response>' +
-      '<Dial timeout="30">' +
-        '<Sip>sip:Glenn2800@sip.telnyx.com</Sip>' +
-        '<Sip>sip:Brent2800@sip.telnyx.com</Sip>' +
-        '<Sip>sip:Jordan2800@sip.telnyx.com</Sip>' +
-      '</Dial>' +
-    '</Response>'
+    '<Response><Hangup/></Response>'
   );
 });
 
@@ -142,16 +135,6 @@ app.post('/webhook/telnyx', async (req, res) => {
       }, { onConflict: 'call_session_id' });
     }
 
-    if (payload.direction === 'outbound') {
-      // Outbound leg to a SIP agent — extract the username and update the row
-      const sipMatch = (payload.to || '').match(/sip:([^@]+)@/i);
-      if (sipMatch) {
-        const agentId = SIP_AGENT_MAP[sipMatch[1]] || sipMatch[1];
-        await supabase.from('calls')
-          .update({ agent_id: agentId })
-          .eq('call_session_id', sessionId);
-      }
-    }
   }
 
   if (eventType === 'call.recording.saved') {

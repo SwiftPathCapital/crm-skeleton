@@ -155,21 +155,6 @@ function DocumentsSection() {
 export default function LeadExpandedRow({ lead, onSave }) {
   const [formData, setFormData] = useState({ ...lead });
   const [saved, setSaved] = useState(false);
-  const [dialing, setDialing] = useState(false);
-
-  async function handleDial() {
-    if (!lead.phone || dialing) return;
-    setDialing(true);
-    try {
-      await fetch("/call", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: lead.phone }),
-      });
-    } finally {
-      setDialing(false);
-    }
-  }
 
   function handleChange(key, value) {
     setSaved(false);
@@ -233,23 +218,11 @@ export default function LeadExpandedRow({ lead, onSave }) {
       <div className="grid grid-cols-2 gap-x-6 gap-y-4 min-w-0">
         {/* Shared top fields */}
         <SectionHeader title="Lead Info" />
-        <div className="col-span-2 flex items-end gap-2 min-w-0">
-          <div className="flex flex-col gap-1 flex-1 min-w-0">
-            <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider">Phone</label>
-            <span className="w-full truncate text-white text-sm px-3 py-2 bg-[#0f1117] border border-[#1e2130] rounded-lg">
-              {lead.phone || "—"}
-            </span>
-          </div>
-          <button
-            onClick={handleDial}
-            disabled={!lead.phone || dialing}
-            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition-all"
-          >
-            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.01L6.6 10.8z" />
-            </svg>
-            {dialing ? "Dialing…" : "Dial"}
-          </button>
+        <div className="col-span-2 flex flex-col gap-1 min-w-0">
+          <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider">Phone</label>
+          <span className="w-full truncate text-white text-sm px-3 py-2 bg-[#0f1117] border border-[#1e2130] rounded-lg">
+            {lead.phone || "—"}
+          </span>
         </div>
         <Field label="Lead Vendor" fieldKey="lead_vendor" value={formData.lead_vendor} onChange={handleChange} />
         <div className="flex flex-col gap-1">

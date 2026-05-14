@@ -2,7 +2,6 @@
 import React, { useState, useEffect } from "react";
 import Sidebar from "./components/Sidebar";
 import MyLeads from "./pages/MyLeads";
-import DialerQueue from "./pages/DialerQueue";
 import AdminDashboard from "./pages/AdminDashboard";
 import AgentManagement from "./pages/AgentManagement";
 import DealPipeline from "./pages/DealPipeline";
@@ -134,8 +133,6 @@ export default function App() {
     switch (activeView) {
       case "my-leads":
         return <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} />;
-      case "dialer-queue":
-        return <DialerQueue />;
       case "scripts":
         return <ScriptsPage />;
       case "admin-dashboard":

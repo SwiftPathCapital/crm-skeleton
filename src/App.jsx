@@ -5,7 +5,6 @@
 import React, { useState } from "react";
 import Sidebar from "./components/Sidebar";
 import MyLeads from "./pages/MyLeads";
-import DialerQueue from "./pages/DialerQueue";
 import AdminDashboard from "./pages/AdminDashboard";
 import { dummyLeads } from "./lib/dummyData";
 
@@ -28,8 +27,6 @@ export default function App() {
     switch (activeView) {
       case "my-leads":
         return <MyLeads leads={leads} onSaveLead={handleSaveLead} />;
-      case "dialer-queue":
-        return <DialerQueue />;
       case "admin-dashboard":
         return userRole === "admin" ? <AdminDashboard /> : null;
       default:
