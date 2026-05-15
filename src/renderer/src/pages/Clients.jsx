@@ -7,7 +7,15 @@ const EMPTY_CLIENT = {
   assigned_agent_id: "", notes: [], docs: [],
 };
 
-export default function Clients() {
+function maskPhone(phone) {
+  if (!phone) return null;
+  const str = String(phone);
+  return str.length > 2 ? str.slice(0, -2) + "••" : "••";
+}
+
+export default function Clients({ agent }) {
+  const isAdmin = agent?.role === "admin";
+
   const [clients, setClients]   = useState([]);
   const [agents, setAgents]     = useState([]);
   const [loading, setLoading]   = useState(true);
@@ -23,7 +31,9 @@ export default function Clients() {
   }, []);
 
   async function fetchClients() {
-    const { data } = await supabase.from("clients").select("*").order("created_at", { ascending: false });
+    let query = supabase.from("clients").select("*").order("created_at", { ascending: false });
+    if (!isAdmin) query = query.eq("assigned_agent_id", agent?.id);
+    const { data } = await query;
     setClients(data || []);
   }
 
@@ -122,15 +132,17 @@ export default function Clients() {
             {clients.length} funded client{clients.length !== 1 ? "s" : ""}
           </p>
         </div>
-        <button
-          onClick={openNew}
-          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] text-sm font-semibold rounded-lg hover:opacity-90 transition-all"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Add Client
-        </button>
+        {isAdmin && (
+          <button
+            onClick={openNew}
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] text-sm font-semibold rounded-lg hover:opacity-90 transition-all"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Add Client
+          </button>
+        )}
       </div>
 
       {/* Grid */}
@@ -156,15 +168,16 @@ export default function Clients() {
                 key={client.id}
                 client={client}
                 agentName={agentName}
-                onClick={() => openClient(client)}
+                onClick={isAdmin ? () => openClient(client) : undefined}
+                phoneDisplay={client.phone ? (isAdmin ? client.phone : maskPhone(client.phone)) : null}
               />
             ))}
           </div>
         </div>
       )}
 
-      {/* Side drawer */}
-      {modalOpen && (
+      {/* Side drawer — admin only */}
+      {isAdmin && modalOpen && (
         <ClientDrawer
           form={form}
           setForm={setForm}
@@ -187,7 +200,7 @@ export default function Clients() {
 
 // ── Client card ───────────────────────────────────────────────────────────────
 
-function ClientCard({ client, agentName, onClick }) {
+function ClientCard({ client, agentName, onClick, phoneDisplay }) {
   const amount    = client.funded_amount ? "$" + Number(client.funded_amount).toLocaleString() : null;
   const docCount  = (client.docs  || []).length;
   const noteCount = (client.notes || []).length;
@@ -195,7 +208,8 @@ function ClientCard({ client, agentName, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="text-left bg-[#0d1117] border border-[#1e2130] rounded-xl p-5 hover:border-[#c9a84c]/30 hover:bg-[#111520] transition-all group"
+      disabled={!onClick}
+      className="text-left bg-[#0d1117] border border-[#1e2130] rounded-xl p-5 hover:border-[#c9a84c]/30 hover:bg-[#111520] transition-all group disabled:cursor-default disabled:hover:border-[#1e2130] disabled:hover:bg-[#0d1117]"
     >
       <div className="flex items-start justify-between mb-3">
         <div className="min-w-0 flex-1">
@@ -220,6 +234,12 @@ function ClientCard({ client, agentName, onClick }) {
           <div className="flex items-center gap-2">
             <span className="text-[#2d3748] text-[10px] uppercase tracking-wider w-16 flex-shrink-0">Date</span>
             <span className="text-[#8892a4] text-xs">{new Date(client.funding_date).toLocaleDateString()}</span>
+          </div>
+        )}
+        {phoneDisplay && (
+          <div className="flex items-center gap-2">
+            <span className="text-[#2d3748] text-[10px] uppercase tracking-wider w-16 flex-shrink-0">Phone</span>
+            <span className="text-[#8892a4] text-xs tabular-nums">{phoneDisplay}</span>
           </div>
         )}
         <div className="flex items-center gap-2">

@@ -140,9 +140,9 @@ export default function App() {
       case "agent-management":
         return agent.role === "admin" ? <AgentManagement /> : <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} />;
       case "deal-pipeline":
-        return agent.role === "admin" ? <DealPipeline agent={agent} /> : <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} />;
+        return <DealPipeline agent={agent} />;
       case "clients":
-        return agent.role === "admin" ? <Clients agent={agent} /> : <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} />;
+        return <Clients agent={agent} />;
       default:
         return <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} />;
     }

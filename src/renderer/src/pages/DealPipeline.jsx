@@ -32,7 +32,9 @@ export default function DealPipeline({ agent }) {
   }, []);
 
   async function fetchDeals() {
-    const { data } = await supabase.from("deals").select("*").order("created_at", { ascending: false });
+    let query = supabase.from("deals").select("*").order("created_at", { ascending: false });
+    if (agent?.role === "agent") query = query.eq("assigned_agent_id", agent.id);
+    const { data } = await query;
     setDeals(data || []);
   }
 
@@ -56,7 +58,7 @@ export default function DealPipeline({ agent }) {
   function openNew() {
     setSelected(null);
     setIsNew(true);
-    setForm({ ...EMPTY_DEAL });
+    setForm({ ...EMPTY_DEAL, assigned_agent_id: agent?.role === "agent" ? agent.id : "" });
     setNewNote("");
   }
 
@@ -213,6 +215,7 @@ export default function DealPipeline({ agent }) {
           onClose={closeModal}
           saving={saving}
           hasExistingId={!!selected}
+          isAdmin={agent?.role === "admin"}
         />
       )}
     </div>
@@ -259,7 +262,7 @@ function DealCard({ deal, agentName, onClick }) {
 
 // ── Drawer ────────────────────────────────────────────────────────────────────
 
-function DealDrawer({ form, setForm, isNew, agents, stages, newNote, setNewNote, onAddNote, onFileUpload, fileRef, onSave, onClose, saving, hasExistingId }) {
+function DealDrawer({ form, setForm, isNew, agents, stages, newNote, setNewNote, onAddNote, onFileUpload, fileRef, onSave, onClose, saving, hasExistingId, isAdmin }) {
   const f = (key, val) => setForm(p => ({ ...p, [key]: val }));
 
   return (
@@ -302,13 +305,15 @@ function DealDrawer({ form, setForm, isNew, agents, stages, newNote, setNewNote,
                 {stages.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
               </select>
             </div>
-            <div>
-              <DrawerLabel>Assigned Agent</DrawerLabel>
-              <select value={form.assigned_agent_id || ""} onChange={e => f("assigned_agent_id", e.target.value)} className={selectCls}>
-                <option value="">— Unassigned —</option>
-                {agents.map(a => <option key={a.id} value={a.id}>{a.full_name || a.email}</option>)}
-              </select>
-            </div>
+            {isAdmin && (
+              <div>
+                <DrawerLabel>Assigned Agent</DrawerLabel>
+                <select value={form.assigned_agent_id || ""} onChange={e => f("assigned_agent_id", e.target.value)} className={selectCls}>
+                  <option value="">— Unassigned —</option>
+                  {agents.map(a => <option key={a.id} value={a.id}>{a.full_name || a.email}</option>)}
+                </select>
+              </div>
+            )}
           </DrawerSection>
 
           {form.stage === "funded" && (
