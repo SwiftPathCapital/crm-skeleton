@@ -7,7 +7,6 @@ import AgentManagement from "./pages/AgentManagement";
 import DealPipeline from "./pages/DealPipeline";
 import Clients from "./pages/Clients";
 import ScriptsPage from "./pages/ScriptsPage";
-import DialerQueue from "./pages/DialerQueue";
 import Login from "./pages/Login";
 import { supabase } from "./lib/supabaseClient";
 
@@ -134,8 +133,6 @@ export default function App() {
     switch (activeView) {
       case "my-leads":
         return <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} />;
-      case "dialer":
-        return <DialerQueue />;
       case "scripts":
         return <ScriptsPage />;
       case "admin-dashboard":
@@ -154,9 +151,17 @@ export default function App() {
   return (
     <div className="flex h-screen bg-[#080b10] text-white overflow-hidden font-sans">
       <Sidebar activeView={activeView} setActiveView={setActiveView} agent={agent} />
-      <main className={`flex-1 bg-gradient-to-br from-[#080b10] to-[#0f1117] ${activeView === "dialer" ? "overflow-hidden" : "overflow-auto p-6"}`}>
-        {renderView()}
-      </main>
+      {/* Dialer iframe stays mounted at all times so VICIdial session survives navigation */}
+      <iframe
+        src="https://dialer.swiftpathcapital.net/agc/vicidial.php"
+        title="VICIdial"
+        style={{ display: activeView === "dialer" ? "block" : "none", flex: 1, border: "none" }}
+      />
+      {activeView !== "dialer" && (
+        <main className="flex-1 overflow-auto p-6 bg-gradient-to-br from-[#080b10] to-[#0f1117]">
+          {renderView()}
+        </main>
+      )}
     </div>
   );
 }
