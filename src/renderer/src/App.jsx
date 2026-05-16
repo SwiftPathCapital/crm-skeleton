@@ -18,6 +18,7 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [activeView, setActiveView] = useState("my-leads");
   const [emailClientProps, setEmailClientProps] = useState({});
+  const [softphoneOpen, setSoftphoneOpen] = useState(false);
   const [leads, setLeads] = useState([]);
   const [leadsLoading, setLeadsLoading] = useState(false);
 
@@ -153,8 +154,6 @@ export default function App() {
         return <DealPipeline agent={agent} />;
       case "clients":
         return <Clients agent={agent} />;
-      case "softphone":
-        return <SoftPhone agent={agent} />;
       default:
         return <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} onOpenEmailClient={openEmailClient} />;
     }
@@ -164,7 +163,9 @@ export default function App() {
     <div className="flex h-screen bg-[#080b10] text-white overflow-hidden font-sans">
       <Sidebar
         activeView={activeView}
+        softphoneOpen={softphoneOpen}
         setActiveView={(view) => {
+          if (view === "softphone") { setSoftphoneOpen(prev => !prev); return; }
           if (view !== "email-client") setEmailClientProps({});
           setActiveView(view);
         }}
@@ -176,6 +177,7 @@ export default function App() {
         title="VICIdial"
         style={{ display: activeView === "dialer" ? "block" : "none", flex: 1, border: "none" }}
       />
+      <SoftPhone agent={agent} visible={softphoneOpen} onClose={() => setSoftphoneOpen(false)} />
       {activeView !== "dialer" && (
         <main className="flex-1 overflow-auto p-6 bg-gradient-to-br from-[#080b10] to-[#0f1117]">
           {renderView()}

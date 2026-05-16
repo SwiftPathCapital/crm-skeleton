@@ -90,7 +90,7 @@ const adminItems = [
   },
 ];
 
-export default function Sidebar({ activeView, setActiveView, agent }) {
+export default function Sidebar({ activeView, setActiveView, softphoneOpen, agent }) {
   const userRole = agent?.role || "agent";
 
   async function handleLogout() {
@@ -128,7 +128,7 @@ export default function Sidebar({ activeView, setActiveView, agent }) {
             key={item.id}
             onClick={() => setActiveView(item.id)}
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
-              activeView === item.id
+              (item.id === "softphone" ? softphoneOpen : activeView === item.id)
                 ? "bg-[#1e2d4a] text-[#c9a84c] border border-[#2a3f6a]"
                 : "text-[#8892a4] hover:bg-[#161b27] hover:text-white"
             }`}
