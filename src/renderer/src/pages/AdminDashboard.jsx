@@ -127,6 +127,8 @@ export default function AdminDashboard() {
   const [callHistory, setCallHistory] = useState([]);
   const [syncing, setSyncing] = useState(false);
   const [editingCall, setEditingCall] = useState(null);
+  const [softphoneLogs, setSoftphoneLogs] = useState([]);
+  const [logsLoading, setLogsLoading] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -154,6 +156,23 @@ export default function AdminDashboard() {
   }, []);
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
+
+  const loadSoftphoneLogs = useCallback(async () => {
+    setLogsLoading(true);
+    try {
+      const { data } = await supabase
+        .from("calls")
+        .select("*")
+        .not("agent_name", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(100);
+      setSoftphoneLogs(data || []);
+    } finally {
+      setLogsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadSoftphoneLogs(); }, [loadSoftphoneLogs]);
 
   async function syncRecordings() {
     setSyncing(true);
@@ -268,6 +287,96 @@ export default function AdminDashboard() {
                   </tr>
                 ))
               )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Soft Phone Call Logs */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-white font-semibold text-lg">Soft Phone Call Logs</h2>
+            <p className="text-[#4a5568] text-xs mt-0.5">Calls placed via the WebRTC softphone by agents.</p>
+          </div>
+          <button
+            onClick={loadSoftphoneLogs}
+            disabled={logsLoading}
+            className="flex items-center gap-2 text-xs bg-[#1e2130] hover:bg-[#252b3d] text-[#8892a4] hover:text-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+          >
+            {logsLoading ? (
+              <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            )}
+            {logsLoading ? "Loading…" : "Refresh"}
+          </button>
+        </div>
+        <div className="border border-[#1e2130] rounded-xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-[#0f1117] border-b border-[#1e2130]">
+                {["Date / Time", "Agent", "Lead Phone", "Duration", "Disposition", "Recording"].map((h) => (
+                  <th key={h} className="text-left text-[#4a5568] font-semibold text-xs uppercase tracking-wider px-4 py-3">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {softphoneLogs.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="text-center text-[#4a5568] text-sm py-8">
+                    {logsLoading ? "Loading…" : "No softphone call logs yet."}
+                  </td>
+                </tr>
+              ) : softphoneLogs.map((log) => (
+                <tr key={log.id} className="border-b border-[#1e2130] last:border-0 hover:bg-[#111520]">
+                  <td className="px-4 py-3 text-[#4a5568] text-xs whitespace-nowrap">
+                    {new Date(log.created_at).toLocaleDateString("en-US", {
+                      month: "short", day: "numeric", year: "numeric",
+                    })}{" "}
+                    <span className="text-[#2d3748]">
+                      {new Date(log.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-white font-medium">{log.agent_name || "—"}</td>
+                  <td className="px-4 py-3 text-[#8892a4] font-mono text-xs">{log.lead_phone || "—"}</td>
+                  <td className="px-4 py-3 text-[#8892a4] font-mono">
+                    {log.duration != null ? formatDuration(log.duration) : "—"}
+                  </td>
+                  <td className="px-4 py-3">
+                    {log.disposition ? (
+                      <span className={`text-xs px-2 py-0.5 rounded-md font-medium ${
+                        log.disposition === "completed"
+                          ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                          : "bg-[#1e2130] text-[#8892a4]"
+                      }`}>
+                        {log.disposition}
+                      </span>
+                    ) : "—"}
+                  </td>
+                  <td className="px-4 py-3">
+                    {log.recording_url ? (
+                      <div className="flex items-center gap-2">
+                        <audio controls preload="none" src={log.recording_url} className="h-8 max-w-[180px]" />
+                        <a
+                          href={log.recording_url}
+                          download
+                          className="text-[#4a5568] hover:text-white transition-colors flex-shrink-0"
+                          title="Download"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                          </svg>
+                        </a>
+                      </div>
+                    ) : (
+                      <span className="text-[#4a5568] text-xs">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
