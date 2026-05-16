@@ -251,15 +251,32 @@ app.get('/auth/zoho/callback', async (req, res) => {
 
   try {
     // Exchange code for tokens
-    const tokenRes = await axios.post(ZOHO_TOKEN_URL, null, {
-      params: {
-        code,
-        client_id:     ZOHO_CLIENT_ID,
-        client_secret: ZOHO_CLIENT_SECRET,
-        redirect_uri:  ZOHO_REDIRECT_URI,
-        grant_type:    'authorization_code',
-      },
-    });
+    console.log('[zoho/callback] exchanging code for token...');
+    console.log('[zoho/callback] redirect_uri:', ZOHO_REDIRECT_URI);
+    console.log('[zoho/callback] client_id:', ZOHO_CLIENT_ID);
+    console.log('[zoho/callback] agentId (state):', agentId);
+    console.log('[zoho/callback] code (first 20 chars):', code?.slice(0, 20));
+
+    let tokenRes;
+    try {
+      tokenRes = await axios.post(ZOHO_TOKEN_URL, null, {
+        params: {
+          code,
+          client_id:     ZOHO_CLIENT_ID,
+          client_secret: ZOHO_CLIENT_SECRET,
+          redirect_uri:  ZOHO_REDIRECT_URI,
+          grant_type:    'authorization_code',
+        },
+      });
+      console.log('[zoho/callback] token response status:', tokenRes.status);
+      console.log('[zoho/callback] token response body:', JSON.stringify(tokenRes.data));
+    } catch (tokenErr) {
+      console.error('[zoho/callback] token exchange HTTP error:');
+      console.error('  status:', tokenErr.response?.status);
+      console.error('  headers:', JSON.stringify(tokenErr.response?.headers));
+      console.error('  body:', JSON.stringify(tokenErr.response?.data));
+      throw tokenErr;
+    }
 
     const { access_token, refresh_token, expires_in, api_domain } = tokenRes.data;
     if (!access_token) throw new Error('Token exchange failed: ' + JSON.stringify(tokenRes.data));
