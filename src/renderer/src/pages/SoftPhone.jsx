@@ -139,7 +139,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
             duration,
             disposition: "completed",
             created_at:  callStartRef.current.toISOString(),
-          }).then(({ error }) => { if (error) console.warn("[calls] insert failed:", error.message); });
+          }).then(({ error }) => { if (error) console.warn("[calls] insert failed:", error.message); else loadCalls(); });
           callStartRef.current = null;
         }
         callDestRef.current = "";
@@ -200,7 +200,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
         duration,
         disposition: "completed",
         created_at:  callStartRef.current.toISOString(),
-      }).then(({ error }) => { if (error) console.warn("[calls] insert failed:", error.message); });
+      }).then(({ error }) => { if (error) console.warn("[calls] insert failed:", error.message); else loadCalls(); });
     }
     callStartRef.current = null;
     callDestRef.current = "";
@@ -234,6 +234,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
   const [activeTab, setActiveTab]         = useState("messages");
   const [dialInput, setDialInput]         = useState("");
   const [conversations, setConversations] = useState([]);
+  const [recentCalls, setRecentCalls]     = useState([]);
   const [selectedConv, setSelectedConv]   = useState(null);
   const [messages, setMessages]           = useState([]);
   const [composeText, setComposeText]     = useState("");
@@ -242,7 +243,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
   const [newName, setNewName]             = useState("");
   const messagesEndRef                    = useRef(null);
 
-  useEffect(() => { loadConversations(); }, []);
+  useEffect(() => { loadConversations(); loadCalls(); }, []);
 
   useEffect(() => {
     if (selectedConv) loadMessages(selectedConv.id);
@@ -251,6 +252,16 @@ export default function SoftPhone({ agent, visible, onClose }) {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  async function loadCalls() {
+    const { data, error } = await supabase
+      .from("calls")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(20);
+    console.log("[calls] data:", data, "error:", error);
+    setRecentCalls(data || []);
+  }
 
   async function loadConversations() {
     const { data } = await supabase
@@ -501,9 +512,27 @@ export default function SoftPhone({ agent, visible, onClose }) {
             <div style={{ padding:"9px 14px 5px" }}>
               <span style={{ fontSize:10, fontWeight:600, color:"#94a3b8", textTransform:"uppercase", letterSpacing:"0.08em" }}>Recent Calls</span>
             </div>
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:80 }}>
-              <span style={{ fontSize:11, color:"#cbd5e1" }}>No recent calls</span>
-            </div>
+            {recentCalls.length === 0 ? (
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:80 }}>
+                <span style={{ fontSize:11, color:"#cbd5e1" }}>No recent calls</span>
+              </div>
+            ) : recentCalls.map(c => (
+              <div
+                key={c.id}
+                onClick={() => setDialInput(c.lead_phone || "")}
+                style={{ display:"flex", alignItems:"center", gap:9, padding:"7px 14px", cursor:"pointer" }}
+                onMouseEnter={e => e.currentTarget.style.background="#f8fafc"}
+                onMouseLeave={e => e.currentTarget.style.background="transparent"}
+              >
+                <div style={{ width:28, height:28, borderRadius:"50%", background:"#f1f5f9", display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700, color:"#475569", flexShrink:0 }}>
+                  #
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:11, fontWeight:600, color:"#1e293b", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.lead_phone || "Unknown"}</div>
+                  <div style={{ fontSize:10, color:"#94a3b8" }}>{formatTime(c.created_at)}</div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -636,9 +665,34 @@ export default function SoftPhone({ agent, visible, onClose }) {
 
           {/* HISTORY TAB */}
           {activeTab === "history" && (
-            <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", flexDirection:"column", gap:8 }}>
-              <svg width={28} height={28} viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth={1.5} strokeLinecap="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8a19.79 19.79 0 01-3.07-8.63A2 2 0 012 .82h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 8.77a16 16 0 006.29 6.29l1.28-1.28a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
-              <span style={{ fontSize:12, color:"#94a3b8" }}>No recent calls</span>
+            <div style={{ flex:1, overflowY:"auto", padding:16 }}>
+              {recentCalls.length === 0 ? (
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"center", flexDirection:"column", gap:8, height:"100%" }}>
+                  <svg width={28} height={28} viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth={1.5} strokeLinecap="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8a19.79 19.79 0 01-3.07-8.63A2 2 0 012 .82h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 8.77a16 16 0 006.29 6.29l1.28-1.28a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
+                  <span style={{ fontSize:12, color:"#94a3b8" }}>No recent calls</span>
+                </div>
+              ) : (
+                <div style={{ background:"#fff", borderRadius:10, border:"1px solid #e2e8f0", overflow:"hidden" }}>
+                  {recentCalls.map((c, i) => (
+                    <div key={c.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", borderBottom: i < recentCalls.length - 1 ? "1px solid #f1f5f9" : "none" }}>
+                      <div style={{ width:34, height:34, borderRadius:"50%", background:"#f1f5f9", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700, color:"#475569", flexShrink:0 }}>
+                        #
+                      </div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:12, fontWeight:600, color:"#1e293b", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.lead_phone || "Unknown"}</div>
+                        <div style={{ fontSize:11, color:"#94a3b8" }}>{c.agent_name} · {c.duration}s</div>
+                      </div>
+                      <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:2 }}>
+                        <span style={{ fontSize:11, fontWeight:500, color:"#22c55e", textTransform:"capitalize" }}>{c.disposition}</span>
+                        <span style={{ fontSize:10, color:"#94a3b8" }}>{formatTime(c.created_at)}</span>
+                      </div>
+                      <button onClick={() => setDialInput(c.lead_phone || "")} style={{ background:"#f0fdf4", border:"1px solid #bbf7d0", borderRadius:7, padding:"5px 11px", fontSize:11, color:"#16a34a", fontWeight:600, cursor:"pointer", flexShrink:0 }}>
+                        Call back
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
