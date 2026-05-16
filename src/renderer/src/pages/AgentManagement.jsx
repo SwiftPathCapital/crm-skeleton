@@ -11,7 +11,7 @@ export default function AgentManagement() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [editAgent, setEditAgent] = useState(null);
-  const [editForm, setEditForm] = useState({ full_name: "", email: "", role: "agent", sip_username: "" });
+  const [editForm, setEditForm] = useState({ full_name: "", email: "", role: "agent", sip_username: "", sip_password: "" });
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState(null);
 
@@ -73,6 +73,7 @@ export default function AgentManagement() {
       email: agent.email || "",
       role: agent.role || "agent",
       sip_username: agent.sip_username || "",
+      sip_password: agent.sip_password || "",
     });
     setEditError(null);
   }
@@ -89,6 +90,7 @@ export default function AgentManagement() {
           email: editForm.email,
           role: editForm.role,
           sip_username: editForm.sip_username || null,
+          sip_password: editForm.sip_password || null,
         })
         .eq("id", editAgent.id);
       if (updateError) throw updateError;
@@ -247,6 +249,7 @@ export default function AgentManagement() {
                 { label: "Full Name", key: "full_name", type: "text", placeholder: "John Smith" },
                 { label: "Email", key: "email", type: "email", placeholder: "john@swiftpathcapital.com" },
                 { label: "SIP Username", key: "sip_username", type: "text", placeholder: "john.smith" },
+                { label: "SIP Password", key: "sip_password", type: "password", placeholder: "••••••••" },
               ].map((field) => (
                 <div key={field.key}>
                   <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider block mb-1.5">{field.label}</label>
@@ -256,7 +259,7 @@ export default function AgentManagement() {
                     onChange={(e) => setEditForm((p) => ({ ...p, [field.key]: e.target.value }))}
                     placeholder={field.placeholder}
                     className="w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a84c] transition-colors"
-                    required={field.key !== "sip_username"}
+                    required={field.key !== "sip_username" && field.key !== "sip_password"}
                   />
                 </div>
               ))}
