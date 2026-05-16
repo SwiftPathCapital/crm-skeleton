@@ -7,34 +7,6 @@ const API_BASE =
     ? "http://localhost:3001"
     : "";
 
-const DEMO_CALLS = [
-  { id: 1, name: "Marcus Johnson",  number: "+13055551234", time: "2m ago",  direction: "incoming" },
-  { id: 2, name: "Sarah Williams",  number: "+17865559876", time: "14m ago", direction: "outgoing" },
-  { id: 3, name: "+13054448899",    number: "+13054448899", time: "1h ago",  direction: "missed"   },
-  { id: 4, name: "Derek Cole",      number: "+13055557700", time: "2h ago",  direction: "outgoing" },
-  { id: 5, name: "Priya Mehta",     number: "+17865553210", time: "3h ago",  direction: "incoming" },
-];
-
-const DEMO_CONVS = [
-  { id: "dc1", contact_name: "Marcus Johnson", contact_phone: "+13055551234", last_message: "Thanks, I'll review the documents tonight.", last_message_at: new Date(Date.now() - 5 * 60000).toISOString(), unread_count: 2 },
-  { id: "dc2", contact_name: "Sarah Williams", contact_phone: "+17865559876", last_message: "What's the interest rate on the deal?",     last_message_at: new Date(Date.now() - 45 * 60000).toISOString(), unread_count: 0 },
-  { id: "dc3", contact_name: "Derek Cole",     contact_phone: "+13055557700", last_message: "Sounds good, call me tomorrow.",             last_message_at: new Date(Date.now() - 2 * 3600000).toISOString(), unread_count: 0 },
-];
-
-const DEMO_MSGS = {
-  dc1: [
-    { id: "dm1", body: "Hey Marcus, just checking in on your application status.", direction: "outbound", sent_at: new Date(Date.now() - 12 * 60000).toISOString() },
-    { id: "dm2", body: "Thanks, I'll review the documents tonight.",               direction: "inbound",  sent_at: new Date(Date.now() - 5 * 60000).toISOString() },
-  ],
-  dc2: [
-    { id: "dm3", body: "Hi Sarah, following up on our call earlier.",              direction: "outbound", sent_at: new Date(Date.now() - 60 * 60000).toISOString() },
-    { id: "dm4", body: "What's the interest rate on the deal?",                    direction: "inbound",  sent_at: new Date(Date.now() - 45 * 60000).toISOString() },
-  ],
-  dc3: [
-    { id: "dm5", body: "Derek, are you available for a quick call?",               direction: "outbound", sent_at: new Date(Date.now() - 3 * 3600000).toISOString() },
-    { id: "dm6", body: "Sounds good, call me tomorrow.",                           direction: "inbound",  sent_at: new Date(Date.now() - 2 * 3600000).toISOString() },
-  ],
-};
 
 const DIAL_ROWS = [["1","2","3"],["4","5","6"],["7","8","9"],["*","0","#"]];
 
@@ -111,9 +83,13 @@ export default function SoftPhone({ agent, visible, onClose }) {
   // ── Telnyx WebRTC state ─────────────────────────────────────────────────────
   const clientRef        = useRef(null);
   const callRef          = useRef(null);
+  const remoteAudioRef   = useRef(null);
+  const timerRef         = useRef(null);
   const [sipStatus, setSipStatus]             = useState("disconnected"); // disconnected | connecting | registered | failed
   const [callState, setCallState]             = useState(null);           // null | ringing_out | ringing_in | active
   const [incomingCallerId, setIncomingCallerId] = useState("");
+  const [isMuted, setIsMuted]                 = useState(false);
+  const [callSeconds, setCallSeconds]         = useState(0);
 
   useEffect(() => {
     if (!agent?.sip_username || !agent?.sip_password) return;
@@ -142,9 +118,19 @@ export default function SoftPhone({ agent, visible, onClose }) {
         setCallState("ringing_out");
       } else if (state === "active") {
         setCallState("active");
+        setCallSeconds(0);
+        timerRef.current = setInterval(() => setCallSeconds(s => s + 1), 1000);
+        // Attach remote audio stream
+        if (remoteAudioRef.current && call.remoteStream) {
+          remoteAudioRef.current.srcObject = call.remoteStream;
+          remoteAudioRef.current.play().catch(() => {});
+        }
       } else if (state === "destroy" || state === "hangup" || state === "done") {
+        clearInterval(timerRef.current);
         setCallState(null);
         setIncomingCallerId("");
+        setIsMuted(false);
+        setCallSeconds(0);
         callRef.current = null;
       }
     });
@@ -154,6 +140,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
     clientRef.current = client;
 
     return () => {
+      clearInterval(timerRef.current);
       try { client.disconnect(); } catch (_) {}
       clientRef.current = null;
     };
@@ -186,10 +173,30 @@ export default function SoftPhone({ agent, visible, onClose }) {
   }
 
   function hangUp() {
+    clearInterval(timerRef.current);
     try { callRef.current?.hangup(); } catch (_) {}
     setCallState(null);
     setIncomingCallerId("");
+    setIsMuted(false);
+    setCallSeconds(0);
     callRef.current = null;
+  }
+
+  function toggleMute() {
+    const call = callRef.current;
+    if (!call) return;
+    if (isMuted) {
+      try { call.unmuteAudio(); } catch (_) {}
+    } else {
+      try { call.muteAudio(); } catch (_) {}
+    }
+    setIsMuted(m => !m);
+  }
+
+  function formatDuration(secs) {
+    const m = String(Math.floor(secs / 60)).padStart(2, "0");
+    const s = String(secs % 60).padStart(2, "0");
+    return `${m}:${s}`;
   }
 
   // ── App state ───────────────────────────────────────────────────────────────
@@ -216,15 +223,14 @@ export default function SoftPhone({ agent, visible, onClose }) {
   }, [messages]);
 
   async function loadConversations() {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("sms_conversations")
       .select("*")
       .order("last_message_at", { ascending: false });
-    setConversations((!error && data?.length) ? data : DEMO_CONVS);
+    setConversations(data || []);
   }
 
   async function loadMessages(convId) {
-    if (convId.startsWith("dc")) { setMessages(DEMO_MSGS[convId] || []); return; }
     const { data } = await supabase
       .from("sms_messages")
       .select("*")
@@ -246,11 +252,9 @@ export default function SoftPhone({ agent, visible, onClose }) {
         body: JSON.stringify({ to: selectedConv.contact_phone, text: body }),
       });
     } catch (e) { console.error("[softphone] SMS send failed:", e); }
-    if (!selectedConv.id.startsWith("dc")) {
-      await supabase.from("sms_messages").insert({ conversation_id: selectedConv.id, body, direction: "outbound", sent_at: new Date().toISOString() });
-      await supabase.from("sms_conversations").update({ last_message: body, last_message_at: new Date().toISOString() }).eq("id", selectedConv.id);
-      setConversations(prev => prev.map(c => c.id === selectedConv.id ? { ...c, last_message: body, last_message_at: new Date().toISOString() } : c));
-    }
+    await supabase.from("sms_messages").insert({ conversation_id: selectedConv.id, body, direction: "outbound", sent_at: new Date().toISOString() });
+    await supabase.from("sms_conversations").update({ last_message: body, last_message_at: new Date().toISOString() }).eq("id", selectedConv.id);
+    setConversations(prev => prev.map(c => c.id === selectedConv.id ? { ...c, last_message: body, last_message_at: new Date().toISOString() } : c));
   }
 
   async function startConversation() {
@@ -376,84 +380,100 @@ export default function SoftPhone({ agent, visible, onClose }) {
             )}
           </div>
 
-          {/* Number display */}
-          <div style={{ padding:"10px 12px 6px" }}>
-            <div style={{ background:"#f8fafc", borderRadius:9, padding:"9px 12px", display:"flex", alignItems:"center", justifyContent:"space-between", border:"1px solid #e2e8f0", minHeight:42 }}>
-              <span style={{ fontSize: dialInput ? 18 : 13, color: dialInput ? "#1e293b" : "#cbd5e1", fontWeight: dialInput ? 500 : 400, letterSpacing:1, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                {dialInput || "Enter number"}
-              </span>
-              {dialInput && (
-                <button onClick={backspace} style={{ background:"none", border:"none", cursor:"pointer", padding:2, color:"#94a3b8", display:"flex", alignItems:"center" }}>
-                  <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 4H8l-7 8 7 8h13a2 2 0 002-2V6a2 2 0 00-2-2z"/><line x1="18" y1="9" x2="12" y2="15"/><line x1="12" y1="9" x2="18" y2="15"/>
-                  </svg>
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Dialpad */}
-          <div style={{ padding:"4px 12px 10px" }}>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:6 }}>
-              {DIAL_ROWS.flat().map(key => (
+          {/* Active call panel OR dialpad */}
+          {callState === "active" ? (
+            <div style={{ padding:"16px 14px", display:"flex", flexDirection:"column", alignItems:"center", gap:14 }}>
+              <div style={{ width:48, height:48, borderRadius:"50%", background:"linear-gradient(135deg,#22c55e,#16a34a)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                <svg width={20} height={20} viewBox="0 0 24 24" fill="#fff"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg>
+              </div>
+              <div style={{ textAlign:"center" }}>
+                <div style={{ fontSize:13, fontWeight:600, color:"#1e293b", marginBottom:2 }}>{dialInput || "Unknown"}</div>
+                <div style={{ fontSize:20, fontWeight:700, color:"#22c55e", letterSpacing:2, fontFamily:"monospace" }}>{formatDuration(callSeconds)}</div>
+              </div>
+              <div style={{ display:"flex", gap:10, width:"100%" }}>
                 <button
-                  key={key}
-                  onClick={() => press(key)}
-                  style={{ background:"#f8fafc", border:"1px solid #e2e8f0", borderRadius:9, padding:"11px 0", fontSize:16, fontWeight:600, color:"#334155", cursor:"pointer", transition:"background 0.1s" }}
-                  onMouseDown={e => e.currentTarget.style.background="#e2e8f0"}
-                  onMouseUp={e => e.currentTarget.style.background="#f8fafc"}
-                  onMouseLeave={e => e.currentTarget.style.background="#f8fafc"}
+                  onClick={toggleMute}
+                  style={{ flex:1, padding:"10px 0", borderRadius:10, border:"1px solid #e2e8f0", background: isMuted ? "#fef2f2" : "#f8fafc", color: isMuted ? "#ef4444" : "#475569", fontWeight:600, fontSize:12, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
                 >
-                  {key}
+                  {isMuted ? (
+                    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 005.12 2.12M15 9.34V4a3 3 0 00-5.94-.6"/><path d="M17 16.95A7 7 0 015 12v-2m14 0v2a7 7 0 01-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                  ) : (
+                    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                  )}
+                  {isMuted ? "Unmute" : "Mute"}
                 </button>
-              ))}
+                <button
+                  onClick={hangUp}
+                  style={{ flex:1, padding:"10px 0", borderRadius:10, border:"none", background:"linear-gradient(135deg,#ef4444,#dc2626)", color:"#fff", fontWeight:700, fontSize:12, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6, boxShadow:"0 3px 10px rgba(239,68,68,0.3)" }}
+                >
+                  <svg width={14} height={14} viewBox="0 0 24 24" fill="currentColor"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg>
+                  Hang Up
+                </button>
+              </div>
             </div>
-            {callState ? (
-              <button
-                style={{ width:"100%", marginTop:8, background:"linear-gradient(135deg,#ef4444,#dc2626)", border:"none", borderRadius:10, padding:"11px 0", color:"#fff", fontWeight:700, fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:7, boxShadow:"0 3px 10px rgba(239,68,68,0.3)" }}
-                onClick={hangUp}
-              >
-                <svg width={15} height={15} viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
-                </svg>
-                {callState === "ringing_out" ? "Cancel" : "Hang Up"}
-              </button>
-            ) : (
-              <button
-                style={{ width:"100%", marginTop:8, background:"linear-gradient(135deg,#22c55e,#16a34a)", border:"none", borderRadius:10, padding:"11px 0", color:"#fff", fontWeight:700, fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:7, boxShadow:"0 3px 10px rgba(34,197,94,0.3)" }}
-                onClick={makeCall}
-              >
-                <svg width={15} height={15} viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
-                </svg>
-                {callState === "ringing_out" ? "Calling…" : "Call"}
-              </button>
-            )}
-          </div>
+          ) : (
+            <>
+              {/* Number display */}
+              <div style={{ padding:"10px 12px 6px" }}>
+                <div style={{ background:"#f8fafc", borderRadius:9, padding:"9px 12px", display:"flex", alignItems:"center", justifyContent:"space-between", border:"1px solid #e2e8f0", minHeight:42 }}>
+                  <span style={{ fontSize: dialInput ? 18 : 13, color: dialInput ? "#1e293b" : "#cbd5e1", fontWeight: dialInput ? 500 : 400, letterSpacing:1, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                    {dialInput || "Enter number"}
+                  </span>
+                  {dialInput && (
+                    <button onClick={backspace} style={{ background:"none", border:"none", cursor:"pointer", padding:2, color:"#94a3b8", display:"flex", alignItems:"center" }}>
+                      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 4H8l-7 8 7 8h13a2 2 0 002-2V6a2 2 0 00-2-2z"/><line x1="18" y1="9" x2="12" y2="15"/><line x1="12" y1="9" x2="18" y2="15"/>
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Dialpad */}
+              <div style={{ padding:"4px 12px 10px" }}>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:6 }}>
+                  {DIAL_ROWS.flat().map(key => (
+                    <button
+                      key={key}
+                      onClick={() => press(key)}
+                      style={{ background:"#f8fafc", border:"1px solid #e2e8f0", borderRadius:9, padding:"11px 0", fontSize:16, fontWeight:600, color:"#334155", cursor:"pointer", transition:"background 0.1s" }}
+                      onMouseDown={e => e.currentTarget.style.background="#e2e8f0"}
+                      onMouseUp={e => e.currentTarget.style.background="#f8fafc"}
+                      onMouseLeave={e => e.currentTarget.style.background="#f8fafc"}
+                    >
+                      {key}
+                    </button>
+                  ))}
+                </div>
+                {callState === "ringing_out" ? (
+                  <button
+                    style={{ width:"100%", marginTop:8, background:"linear-gradient(135deg,#ef4444,#dc2626)", border:"none", borderRadius:10, padding:"11px 0", color:"#fff", fontWeight:700, fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:7, boxShadow:"0 3px 10px rgba(239,68,68,0.3)" }}
+                    onClick={hangUp}
+                  >
+                    <svg width={15} height={15} viewBox="0 0 24 24" fill="currentColor"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg>
+                    Cancel
+                  </button>
+                ) : (
+                  <button
+                    style={{ width:"100%", marginTop:8, background:"linear-gradient(135deg,#22c55e,#16a34a)", border:"none", borderRadius:10, padding:"11px 0", color:"#fff", fontWeight:700, fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:7, boxShadow:"0 3px 10px rgba(34,197,94,0.3)" }}
+                    onClick={makeCall}
+                  >
+                    <svg width={15} height={15} viewBox="0 0 24 24" fill="currentColor"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg>
+                    Call
+                  </button>
+                )}
+              </div>
+            </>
+          )}
 
           {/* Recent calls */}
           <div style={{ flex:1, overflowY:"auto", borderTop:"1px solid #f1f5f9" }}>
             <div style={{ padding:"9px 14px 5px" }}>
               <span style={{ fontSize:10, fontWeight:600, color:"#94a3b8", textTransform:"uppercase", letterSpacing:"0.08em" }}>Recent Calls</span>
             </div>
-            {DEMO_CALLS.map(call => (
-              <div
-                key={call.id}
-                onClick={() => setDialInput(call.number)}
-                style={{ display:"flex", alignItems:"center", gap:9, padding:"7px 14px", cursor:"pointer", transition:"background 0.1s" }}
-                onMouseEnter={e => e.currentTarget.style.background="#f8fafc"}
-                onMouseLeave={e => e.currentTarget.style.background="transparent"}
-              >
-                <div style={{ width:28, height:28, borderRadius:"50%", background:"#f1f5f9", display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700, color:"#475569", flexShrink:0 }}>
-                  {call.name !== call.number ? initials(call.name) : "#"}
-                </div>
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontSize:11, fontWeight:600, color:"#1e293b", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{call.name}</div>
-                  <div style={{ fontSize:10, color:"#94a3b8" }}>{call.time}</div>
-                </div>
-                <DirectionIcon direction={call.direction} />
-              </div>
-            ))}
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:80 }}>
+              <span style={{ fontSize:11, color:"#cbd5e1" }}>No recent calls</span>
+            </div>
           </div>
         </div>
 
@@ -488,6 +508,11 @@ export default function SoftPhone({ agent, visible, onClose }) {
 
               {/* Conversation list */}
               <div style={{ width:220, borderRight:"1px solid #e2e8f0", background:"#fff", overflowY:"auto", flexShrink:0 }}>
+                {conversations.length === 0 && (
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:80 }}>
+                    <span style={{ fontSize:11, color:"#cbd5e1" }}>No messages yet</span>
+                  </div>
+                )}
                 {conversations.map(conv => (
                   <div
                     key={conv.id}
@@ -581,31 +606,16 @@ export default function SoftPhone({ agent, visible, onClose }) {
 
           {/* HISTORY TAB */}
           {activeTab === "history" && (
-            <div style={{ flex:1, overflowY:"auto", padding:16 }}>
-              <div style={{ background:"#fff", borderRadius:10, border:"1px solid #e2e8f0", overflow:"hidden" }}>
-                {DEMO_CALLS.map((call, i) => (
-                  <div key={call.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", borderBottom: i < DEMO_CALLS.length-1 ? "1px solid #f1f5f9" : "none" }}>
-                    <div style={{ width:34, height:34, borderRadius:"50%", background:"#f1f5f9", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700, color:"#475569", flexShrink:0 }}>
-                      {call.name !== call.number ? initials(call.name) : "#"}
-                    </div>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:12, fontWeight:600, color:"#1e293b", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{call.name}</div>
-                      <div style={{ fontSize:11, color:"#94a3b8" }}>{call.number}</div>
-                    </div>
-                    <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:2 }}>
-                      <span style={{ fontSize:11, fontWeight:500, color: call.direction==="missed" ? "#ef4444" : call.direction==="incoming" ? "#22c55e" : "#94a3b8", textTransform:"capitalize" }}>{call.direction}</span>
-                      <span style={{ fontSize:10, color:"#94a3b8" }}>{call.time}</span>
-                    </div>
-                    <button onClick={() => setDialInput(call.number)} style={{ background:"#f0fdf4", border:"1px solid #bbf7d0", borderRadius:7, padding:"5px 11px", fontSize:11, color:"#16a34a", fontWeight:600, cursor:"pointer", flexShrink:0 }}>
-                      Call back
-                    </button>
-                  </div>
-                ))}
-              </div>
+            <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", flexDirection:"column", gap:8 }}>
+              <svg width={28} height={28} viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth={1.5} strokeLinecap="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8a19.79 19.79 0 01-3.07-8.63A2 2 0 012 .82h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 8.77a16 16 0 006.29 6.29l1.28-1.28a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
+              <span style={{ fontSize:12, color:"#94a3b8" }}>No recent calls</span>
             </div>
           )}
         </div>
       </div>
+
+      {/* Hidden audio for remote stream */}
+      <audio ref={remoteAudioRef} autoPlay style={{ display:"none" }} />
 
       {/* ── INCOMING CALL BANNER ────────────────────────────────────────────────── */}
       {callState === "ringing_in" && (
