@@ -281,14 +281,18 @@ app.get('/auth/zoho/callback', async (req, res) => {
     const { access_token, refresh_token, expires_in, api_domain } = tokenRes.data;
     if (!access_token) throw new Error('Token exchange failed: ' + JSON.stringify(tokenRes.data));
 
-    const mailBase   = api_domain || 'https://mail.zoho.com';
-    const calBase    = mailBase.replace('mail.', 'calendar.');
+    const mailBase   = 'https://mail.zoho.com';
+    const calBase    = 'https://calendar.zoho.com';
     const expires_at = Date.now() + (expires_in || 3600) * 1000;
 
     // Fetch Zoho Mail account ID
-    const accountsRes = await axios.get(`${mailBase}/api/accounts`, {
-      headers: { Authorization: `Zoho-oauthtoken ${access_token}` },
+    const accountsUrl = `${mailBase}/api/accounts`;
+    console.log('[zoho/callback] fetching accounts from:', accountsUrl);
+    const accountsRes = await axios.get(accountsUrl, {
+      headers: { Authorization: `Bearer ${access_token}` },
     });
+    console.log('[zoho/callback] accounts response status:', accountsRes.status);
+    console.log('[zoho/callback] accounts response body:', JSON.stringify(accountsRes.data));
     const accountId = accountsRes.data?.data?.[0]?.accountId;
 
     // Fetch default Zoho Calendar UID (best-effort)
