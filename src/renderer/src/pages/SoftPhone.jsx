@@ -85,6 +85,8 @@ export default function SoftPhone({ agent, visible, onClose }) {
   const callRef          = useRef(null);
   const remoteAudioRef   = useRef(null);
   const timerRef         = useRef(null);
+  const callStartRef     = useRef(null);  // Date when call went active
+  const callDestRef      = useRef("");    // E164 destination dialled
   const [sipStatus, setSipStatus]             = useState("disconnected"); // disconnected | connecting | registered | failed
   const [callState, setCallState]             = useState(null);           // null | ringing_out | ringing_in | active
   const [incomingCallerId, setIncomingCallerId] = useState("");
@@ -117,6 +119,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
       } else if (state === "ringing" && call.direction === "outbound") {
         setCallState("ringing_out");
       } else if (state === "active") {
+        callStartRef.current = new Date();
         setCallState("active");
         setCallSeconds(0);
         timerRef.current = setInterval(() => setCallSeconds(s => s + 1), 1000);
@@ -127,6 +130,19 @@ export default function SoftPhone({ agent, visible, onClose }) {
         }
       } else if (state === "destroy" || state === "hangup" || state === "done") {
         clearInterval(timerRef.current);
+        // Save call record if the call was ever active
+        if (callStartRef.current) {
+          const duration = Math.round((Date.now() - callStartRef.current.getTime()) / 1000);
+          supabase.from("calls").insert({
+            lead_phone:  callDestRef.current || call.options?.destinationNumber || null,
+            agent_name:  agent?.full_name || null,
+            duration,
+            disposition: "completed",
+            created_at:  callStartRef.current.toISOString(),
+          }).then(({ error }) => { if (error) console.warn("[calls] insert failed:", error.message); });
+          callStartRef.current = null;
+        }
+        callDestRef.current = "";
         setCallState(null);
         setIncomingCallerId("");
         setIsMuted(false);
@@ -159,6 +175,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
     if (!digits.startsWith("1")) digits = "1" + digits;
     const dest = "+" + digits;
 
+    callDestRef.current = dest;
     clientRef.current.newCall({
       destinationNumber: dest,
       callerNumber:      agent?.did || "+17869460772",
@@ -174,6 +191,19 @@ export default function SoftPhone({ agent, visible, onClose }) {
 
   function hangUp() {
     clearInterval(timerRef.current);
+    // Save call record before clearing refs
+    if (callStartRef.current) {
+      const duration = Math.round((Date.now() - callStartRef.current.getTime()) / 1000);
+      supabase.from("calls").insert({
+        lead_phone:  callDestRef.current || null,
+        agent_name:  agent?.full_name || null,
+        duration,
+        disposition: "completed",
+        created_at:  callStartRef.current.toISOString(),
+      }).then(({ error }) => { if (error) console.warn("[calls] insert failed:", error.message); });
+    }
+    callStartRef.current = null;
+    callDestRef.current = "";
     try { callRef.current?.hangup(); } catch (_) {}
     setCallState(null);
     setIncomingCallerId("");
