@@ -8,6 +8,7 @@ import DealPipeline from "./pages/DealPipeline";
 import Clients from "./pages/Clients";
 import ScriptsPage from "./pages/ScriptsPage";
 import EmailClient from "./pages/EmailClient";
+import SoftPhone from "./pages/SoftPhone";
 import Login from "./pages/Login";
 import { supabase } from "./lib/supabaseClient";
 
@@ -152,6 +153,8 @@ export default function App() {
         return <DealPipeline agent={agent} />;
       case "clients":
         return <Clients agent={agent} />;
+      case "softphone":
+        return <SoftPhone agent={agent} />;
       default:
         return <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} onOpenEmailClient={openEmailClient} />;
     }
