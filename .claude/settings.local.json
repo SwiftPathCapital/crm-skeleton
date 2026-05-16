@@ -30,7 +30,9 @@
       "Bash(node --check index.js)",
       "Bash(dir \"C:\\\\Users\\\\free2\\\\OneDrive\\\\Desktop\\\\crm-skeleton\\\\src\\\\renderer\\\\src\\\\assets\\\\logo.png\")",
       "Bash(node -e \"require\\('sharp'\\); console.log\\('sharp available'\\)\")",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(git rm *)",
+      "Bash(npm uninstall *)"
     ]
   }
 }
