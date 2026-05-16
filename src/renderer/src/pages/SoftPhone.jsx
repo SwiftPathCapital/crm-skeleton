@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import JsSIP from "jssip";
+import { TelnyxRTC } from "@telnyx/webrtc";
 import { supabase } from "../lib/supabaseClient";
 
 const API_BASE =
@@ -108,101 +108,86 @@ export default function SoftPhone({ agent, visible, onClose }) {
     window.removeEventListener("mouseup", onMouseUp);
   }, [onMouseMove, onMouseUp]);
 
-  // ── SIP / WebRTC state ──────────────────────────────────────────────────────
-  const uaRef            = useRef(null);
-  const sessionRef       = useRef(null);
-  const remoteAudioRef   = useRef(null);
-  const [sipStatus, setSipStatus]         = useState("disconnected"); // disconnected | connecting | registered | failed
-  const [callState, setCallState]         = useState(null);           // null | ringing_out | ringing_in | active
-  const [incomingSession, setIncomingSession] = useState(null);
+  // ── Telnyx WebRTC state ─────────────────────────────────────────────────────
+  const clientRef        = useRef(null);
+  const callRef          = useRef(null);
+  const [sipStatus, setSipStatus]             = useState("disconnected"); // disconnected | connecting | registered | failed
+  const [callState, setCallState]             = useState(null);           // null | ringing_out | ringing_in | active
   const [incomingCallerId, setIncomingCallerId] = useState("");
 
-  // Initialise JsSIP UA whenever the agent's SIP credentials are available
   useEffect(() => {
     if (!agent?.sip_username || !agent?.sip_password) return;
 
-    JsSIP.debug.disable("JsSIP:*");
-
-    const socket = new JsSIP.WebSocketInterface("wss://rtc.telnyx.com/webrtc");
-    const ua = new JsSIP.UA({
-      sockets:   [socket],
-      uri:       `sip:${agent.sip_username}@rtc.telnyx.com`,
-      password:  agent.sip_password,
-      register:  true,
+    const client = new TelnyxRTC({
+      login:    agent.sip_username,
+      password: agent.sip_password,
     });
 
-    ua.on("connecting",    () => setSipStatus("connecting"));
-    ua.on("registered",    () => setSipStatus("registered"));
-    ua.on("unregistered",  () => setSipStatus("disconnected"));
-    ua.on("registrationFailed", () => setSipStatus("failed"));
+    client.on("telnyx.ready", () => setSipStatus("registered"));
+    client.on("telnyx.error", () => setSipStatus("failed"));
+    client.on("telnyx.socket.close", () => setSipStatus("disconnected"));
 
-    ua.on("newRTCSession", ({ session }) => {
-      if (session.direction === "incoming") {
-        const callerId = session.remote_identity?.uri?.user || "Unknown";
-        setIncomingCallerId(callerId);
-        setIncomingSession(session);
+    client.on("telnyx.notification", (notification) => {
+      const call = notification.call;
+      if (!call) return;
+
+      callRef.current = call;
+      const state = call.state;
+      console.log("[Telnyx] call state:", state, call.direction);
+
+      if (state === "ringing" && call.direction === "inbound") {
+        setIncomingCallerId(call.options?.remoteCallerNumber || "Unknown");
         setCallState("ringing_in");
-
-        session.on("ended",  () => { setCallState(null); setIncomingSession(null); sessionRef.current = null; });
-        session.on("failed", () => { setCallState(null); setIncomingSession(null); sessionRef.current = null; });
-        sessionRef.current = session;
+      } else if (state === "ringing" && call.direction === "outbound") {
+        setCallState("ringing_out");
+      } else if (state === "active") {
+        setCallState("active");
+      } else if (state === "destroy" || state === "hangup" || state === "done") {
+        setCallState(null);
+        setIncomingCallerId("");
+        callRef.current = null;
       }
     });
 
-    ua.start();
-    uaRef.current = ua;
+    setSipStatus("connecting");
+    client.connect();
+    clientRef.current = client;
 
     return () => {
-      try { ua.stop(); } catch (_) {}
-      uaRef.current = null;
+      try { client.disconnect(); } catch (_) {}
+      clientRef.current = null;
     };
   }, [agent?.sip_username, agent?.sip_password]);
 
-  function attachRemoteAudio(session) {
-    session.connection.addEventListener("track", (e) => {
-      if (remoteAudioRef.current && e.streams[0]) {
-        remoteAudioRef.current.srcObject = e.streams[0];
-        remoteAudioRef.current.play().catch(() => {});
-      }
-    });
-  }
-
   function makeCall() {
     if (!dialInput.trim()) return;
-    if (!uaRef.current || sipStatus !== "registered") {
-      alert("SIP not registered. Check credentials.");
+    if (!clientRef.current || sipStatus !== "registered") {
+      alert("Not connected to Telnyx. Check credentials.");
       return;
     }
     if (callState) return;
 
-    const target = `sip:${dialInput.trim()}@rtc.telnyx.com`;
-    const session = uaRef.current.call(target, {
-      mediaConstraints:    { audio: true, video: false },
-      rtcOfferConstraints: { offerToReceiveAudio: true, offerToReceiveVideo: false },
+    // Ensure E164 format
+    let dest = dialInput.trim();
+    if (!dest.startsWith("+")) dest = "+" + dest;
+
+    clientRef.current.newCall({
+      destinationNumber: dest,
+      callerNumber:      agent?.did || undefined,
     });
-
-    sessionRef.current = session;
-    setCallState("ringing_out");
-    attachRemoteAudio(session);
-
-    session.on("accepted", () => setCallState("active"));
-    session.on("ended",    () => { setCallState(null); sessionRef.current = null; });
-    session.on("failed",   (e) => { setCallState(null); sessionRef.current = null; console.warn("[SIP] call failed", e); });
   }
 
   function answerCall() {
-    if (!incomingSession) return;
-    incomingSession.answer({ mediaConstraints: { audio: true, video: false } });
-    attachRemoteAudio(incomingSession);
-    setIncomingSession(null);
+    try { callRef.current?.answer(); } catch (_) {}
     setCallState("active");
+    setIncomingCallerId("");
   }
 
   function hangUp() {
-    try { sessionRef.current?.terminate(); } catch (_) {}
+    try { callRef.current?.hangup(); } catch (_) {}
     setCallState(null);
-    setIncomingSession(null);
-    sessionRef.current = null;
+    setIncomingCallerId("");
+    callRef.current = null;
   }
 
   // ── App state ───────────────────────────────────────────────────────────────
@@ -644,8 +629,6 @@ export default function SoftPhone({ agent, visible, onClose }) {
         </div>
       )}
 
-      {/* Hidden audio element for remote SIP audio */}
-      <audio ref={remoteAudioRef} autoPlay style={{ display:"none" }} />
 
       {/* ── NEW MESSAGE MODAL ──────────────────────────────────────────────────── */}
       {showNewMsg && (
