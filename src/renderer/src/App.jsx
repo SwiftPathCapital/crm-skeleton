@@ -144,7 +144,7 @@ export default function App() {
       case "my-leads":
         return <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} onOpenEmailClient={openEmailClient} />;
       case "scripts":
-        return <ScriptsPage />;
+        return <ScriptsPage agent={agent} />;
       case "email-client":
         return <EmailClient {...emailClientProps} />;
       case "admin-dashboard":

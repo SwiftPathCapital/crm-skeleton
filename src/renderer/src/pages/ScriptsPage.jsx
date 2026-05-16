@@ -234,13 +234,13 @@ function Em({ children }) {
 // ─────────────────────────────────────────────
 // LIVE TRANSFER SCRIPT
 // ─────────────────────────────────────────────
-function LiveTransferScript() {
+function LiveTransferScript({ agent }) {
   const [step, setStep] = useState(0);
   const [qualState, setQualState] = useState({});
   const [dqId, setDqId] = useState(null);
-  const [agentInfo, setAgentInfo] = useState({ name:"", number:"", appUrl:"", uploadUrl:"" });
+  const [agentInfo, setAgentInfo] = useState({ name: agent?.full_name || "", number:"", appUrl:"", uploadUrl:"" });
   const [showSettings, setShowSettings] = useState(false);
-  const [settingsDraft, setSettingsDraft] = useState({ name:"", number:"", appUrl:"", uploadUrl:"" });
+  const [settingsDraft, setSettingsDraft] = useState({ name: agent?.full_name || "", number:"", appUrl:"", uploadUrl:"" });
 
   const markQual = useCallback((id, result) => {
     const newState = { ...qualState, [id]: result };
@@ -595,9 +595,9 @@ function LiveTransferScript() {
 // ─────────────────────────────────────────────
 // WEBFORM SCRIPT
 // ─────────────────────────────────────────────
-function WebformScript() {
+function WebformScript({ agent }) {
   const [step, setStep] = useState(0);
-  const [agentName, setAgentName] = useState("");
+  const [agentName, setAgentName] = useState(agent?.full_name || "");
   const [agentNumber, setAgentNumber] = useState("");
   const [appUrl, setAppUrl] = useState("");
   const [uploadUrl, setUploadUrl] = useState("");
@@ -833,7 +833,7 @@ function WebformScript() {
 // ─────────────────────────────────────────────
 // MAIN SCRIPTS PAGE
 // ─────────────────────────────────────────────
-export default function ScriptsPage() {
+export default function ScriptsPage({ agent }) {
   const [activeTab, setActiveTab] = useState("live");
 
   return (
@@ -866,7 +866,7 @@ export default function ScriptsPage() {
 
         {/* Script content */}
         <div style={{ flex:1, overflow:"auto", display:"flex" }}>
-          {activeTab === "live" ? <LiveTransferScript /> : <WebformScript />}
+          {activeTab === "live" ? <LiveTransferScript agent={agent} /> : <WebformScript agent={agent} />}
         </div>
       </div>
     </>
