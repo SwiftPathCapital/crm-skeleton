@@ -1,7 +1,7 @@
 // src/renderer/src/components/Sidebar.jsx
 import React from "react";
 import { supabase } from "../lib/supabaseClient";
-import logo from "../assets/logo.png";
+import logo from "../assets/logo.webp";
 
 const navItems = [
   {
