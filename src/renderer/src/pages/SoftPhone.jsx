@@ -108,6 +108,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
   }, [onMouseMove, onMouseUp]);
 
   // ── App state ───────────────────────────────────────────────────────────────
+  const [showSipPass, setShowSipPass]     = useState(false);
   const [activeTab, setActiveTab]         = useState("messages");
   const [dialInput, setDialInput]         = useState("");
   const [conversations, setConversations] = useState([]);
@@ -234,7 +235,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
 
           {/* Agent header */}
           <div style={{ padding:"14px 14px 10px", borderBottom:"1px solid #f1f5f9" }}>
-            <div style={{ display:"flex", alignItems:"center", gap:9 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:9, marginBottom: (agent?.sip_username || agent?.sip_password) ? 8 : 0 }}>
               <div style={{ width:34, height:34, borderRadius:"50%", background:"linear-gradient(135deg,#3b82f6,#6366f1)", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:12, fontWeight:700, flexShrink:0 }}>
                 {initials(agent?.full_name || "Agent")}
               </div>
@@ -246,6 +247,40 @@ export default function SoftPhone({ agent, visible, onClose }) {
                 <span style={{ fontSize:10, color:"#94a3b8" }}>Online</span>
               </div>
             </div>
+            {(agent?.sip_username || agent?.sip_password) && (
+              <div style={{ background:"#f8fafc", border:"1px solid #e2e8f0", borderRadius:8, padding:"7px 10px", display:"flex", flexDirection:"column", gap:4 }}>
+                {agent?.sip_username && (
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                    <span style={{ fontSize:9, fontWeight:600, color:"#94a3b8", textTransform:"uppercase", letterSpacing:"0.07em" }}>SIP User</span>
+                    <span style={{ fontSize:11, color:"#334155", fontFamily:"monospace" }}>{agent.sip_username}</span>
+                  </div>
+                )}
+                {agent?.sip_password && (
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                    <span style={{ fontSize:9, fontWeight:600, color:"#94a3b8", textTransform:"uppercase", letterSpacing:"0.07em" }}>SIP Pass</span>
+                    <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+                      <span style={{ fontSize:11, color:"#334155", fontFamily:"monospace" }}>
+                        {showSipPass ? agent.sip_password : "••••••••"}
+                      </span>
+                      <button
+                        onClick={() => setShowSipPass(p => !p)}
+                        style={{ background:"none", border:"none", cursor:"pointer", padding:0, color:"#94a3b8", display:"flex", alignItems:"center" }}
+                      >
+                        {showSipPass ? (
+                          <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>
+                          </svg>
+                        ) : (
+                          <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                          </svg>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Number display */}
