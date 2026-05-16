@@ -10,6 +10,10 @@ export default function AgentManagement() {
   const [form, setForm] = useState({ full_name: "", email: "", password: "", role: "agent", did: "" });
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  const [editAgent, setEditAgent] = useState(null);
+  const [editForm, setEditForm] = useState({ full_name: "", email: "", role: "agent", sip_username: "" });
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState(null);
 
   useEffect(() => { fetchAgents(); }, []);
 
@@ -59,6 +63,43 @@ export default function AgentManagement() {
       setError(err.message);
     } finally {
       setCreating(false);
+    }
+  }
+
+  function openEdit(agent) {
+    setEditAgent(agent);
+    setEditForm({
+      full_name: agent.full_name || "",
+      email: agent.email || "",
+      role: agent.role || "agent",
+      sip_username: agent.sip_username || "",
+    });
+    setEditError(null);
+  }
+
+  async function handleUpdateAgent(e) {
+    e.preventDefault();
+    try {
+      setSaving(true);
+      setEditError(null);
+      const { error: updateError } = await supabase
+        .from("agents")
+        .update({
+          full_name: editForm.full_name,
+          email: editForm.email,
+          role: editForm.role,
+          sip_username: editForm.sip_username || null,
+        })
+        .eq("id", editAgent.id);
+      if (updateError) throw updateError;
+      setSuccess(`Agent ${editForm.full_name} updated successfully!`);
+      setEditAgent(null);
+      fetchAgents();
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err) {
+      setEditError(err.message);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -164,7 +205,11 @@ export default function AgentManagement() {
               <tr><td colSpan={5} className="text-center text-[#4a5568] py-8">No agents yet. Add your first agent above.</td></tr>
             )}
             {agents.map((agent) => (
-              <tr key={agent.id} className="border-b border-[#1e2130] hover:bg-[#111520]">
+              <tr
+                key={agent.id}
+                onClick={() => openEdit(agent)}
+                className="border-b border-[#1e2130] hover:bg-[#111520] cursor-pointer"
+              >
                 <td className="px-4 py-3 text-white font-medium">{agent.full_name}</td>
                 <td className="px-4 py-3 text-[#8892a4]">{agent.email}</td>
                 <td className="px-4 py-3">
@@ -179,6 +224,80 @@ export default function AgentManagement() {
           </tbody>
         </table>
       </div>
+      {/* Edit Agent Modal */}
+      {editAgent && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) setEditAgent(null); }}
+        >
+          <div className="bg-[#0d1117] border border-[#1e2130] rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-white text-lg font-bold">Edit Agent</h2>
+              <button
+                onClick={() => setEditAgent(null)}
+                className="text-[#4a5568] hover:text-white transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <form onSubmit={handleUpdateAgent} className="flex flex-col gap-4">
+              {[
+                { label: "Full Name", key: "full_name", type: "text", placeholder: "John Smith" },
+                { label: "Email", key: "email", type: "email", placeholder: "john@swiftpathcapital.com" },
+                { label: "SIP Username", key: "sip_username", type: "text", placeholder: "john.smith" },
+              ].map((field) => (
+                <div key={field.key}>
+                  <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider block mb-1.5">{field.label}</label>
+                  <input
+                    type={field.type}
+                    value={editForm[field.key]}
+                    onChange={(e) => setEditForm((p) => ({ ...p, [field.key]: e.target.value }))}
+                    placeholder={field.placeholder}
+                    className="w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a84c] transition-colors"
+                    required={field.key !== "sip_username"}
+                  />
+                </div>
+              ))}
+              <div>
+                <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider block mb-1.5">Role</label>
+                <select
+                  value={editForm.role}
+                  onChange={(e) => setEditForm((p) => ({ ...p, role: e.target.value }))}
+                  className="w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a84c] transition-colors"
+                >
+                  <option value="agent">Agent</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+
+              {editError && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3">
+                  <p className="text-red-400 text-sm">{editError}</p>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-1">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex-1 py-2 bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] text-sm font-semibold rounded-lg hover:opacity-90 disabled:opacity-50 transition-all"
+                >
+                  {saving ? "Saving..." : "Save Changes"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditAgent(null)}
+                  className="px-5 py-2 bg-[#1e2130] text-[#8892a4] text-sm rounded-lg hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
