@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import JsSIP from "jssip";
 import { supabase } from "../lib/supabaseClient";
 
 const API_BASE =
@@ -106,6 +107,103 @@ export default function SoftPhone({ agent, visible, onClose }) {
     window.removeEventListener("mousemove", onMouseMove);
     window.removeEventListener("mouseup", onMouseUp);
   }, [onMouseMove, onMouseUp]);
+
+  // ── SIP / WebRTC state ──────────────────────────────────────────────────────
+  const uaRef            = useRef(null);
+  const sessionRef       = useRef(null);
+  const remoteAudioRef   = useRef(null);
+  const [sipStatus, setSipStatus]         = useState("disconnected"); // disconnected | connecting | registered | failed
+  const [callState, setCallState]         = useState(null);           // null | ringing_out | ringing_in | active
+  const [incomingSession, setIncomingSession] = useState(null);
+  const [incomingCallerId, setIncomingCallerId] = useState("");
+
+  // Initialise JsSIP UA whenever the agent's SIP credentials are available
+  useEffect(() => {
+    if (!agent?.sip_username || !agent?.sip_password) return;
+
+    JsSIP.debug.disable("JsSIP:*");
+
+    const socket = new JsSIP.WebSocketInterface("wss://rtc.telnyx.com");
+    const ua = new JsSIP.UA({
+      sockets:   [socket],
+      uri:       `sip:${agent.sip_username}@sip.telnyx.com`,
+      password:  agent.sip_password,
+      register:  true,
+    });
+
+    ua.on("connecting",    () => setSipStatus("connecting"));
+    ua.on("registered",    () => setSipStatus("registered"));
+    ua.on("unregistered",  () => setSipStatus("disconnected"));
+    ua.on("registrationFailed", () => setSipStatus("failed"));
+
+    ua.on("newRTCSession", ({ session }) => {
+      if (session.direction === "incoming") {
+        const callerId = session.remote_identity?.uri?.user || "Unknown";
+        setIncomingCallerId(callerId);
+        setIncomingSession(session);
+        setCallState("ringing_in");
+
+        session.on("ended",  () => { setCallState(null); setIncomingSession(null); sessionRef.current = null; });
+        session.on("failed", () => { setCallState(null); setIncomingSession(null); sessionRef.current = null; });
+        sessionRef.current = session;
+      }
+    });
+
+    ua.start();
+    uaRef.current = ua;
+
+    return () => {
+      try { ua.stop(); } catch (_) {}
+      uaRef.current = null;
+    };
+  }, [agent?.sip_username, agent?.sip_password]);
+
+  function attachRemoteAudio(session) {
+    session.connection.addEventListener("track", (e) => {
+      if (remoteAudioRef.current && e.streams[0]) {
+        remoteAudioRef.current.srcObject = e.streams[0];
+        remoteAudioRef.current.play().catch(() => {});
+      }
+    });
+  }
+
+  function makeCall() {
+    if (!dialInput.trim()) return;
+    if (!uaRef.current || sipStatus !== "registered") {
+      alert("SIP not registered. Check credentials.");
+      return;
+    }
+    if (callState) return;
+
+    const target = `sip:${dialInput.trim()}@sip.telnyx.com`;
+    const session = uaRef.current.call(target, {
+      mediaConstraints:    { audio: true, video: false },
+      rtcOfferConstraints: { offerToReceiveAudio: true, offerToReceiveVideo: false },
+    });
+
+    sessionRef.current = session;
+    setCallState("ringing_out");
+    attachRemoteAudio(session);
+
+    session.on("accepted", () => setCallState("active"));
+    session.on("ended",    () => { setCallState(null); sessionRef.current = null; });
+    session.on("failed",   (e) => { setCallState(null); sessionRef.current = null; console.warn("[SIP] call failed", e); });
+  }
+
+  function answerCall() {
+    if (!incomingSession) return;
+    incomingSession.answer({ mediaConstraints: { audio: true, video: false } });
+    attachRemoteAudio(incomingSession);
+    setIncomingSession(null);
+    setCallState("active");
+  }
+
+  function hangUp() {
+    try { sessionRef.current?.terminate(); } catch (_) {}
+    setCallState(null);
+    setIncomingSession(null);
+    sessionRef.current = null;
+  }
 
   // ── App state ───────────────────────────────────────────────────────────────
   const [showSipPass, setShowSipPass]     = useState(false);
@@ -242,9 +340,11 @@ export default function SoftPhone({ agent, visible, onClose }) {
               <div>
                 <div style={{ display:"flex", alignItems:"center", gap:5, marginBottom:1 }}>
                   <span style={{ fontSize:12, fontWeight:600, color:"#1e293b" }}>{agent?.full_name || "Agent"}</span>
-                  <span style={{ width:6, height:6, borderRadius:"50%", background:"#22c55e", display:"inline-block" }} />
+                  <span style={{ width:6, height:6, borderRadius:"50%", display:"inline-block", background: sipStatus === "registered" ? "#22c55e" : sipStatus === "connecting" ? "#f59e0b" : sipStatus === "failed" ? "#ef4444" : "#94a3b8" }} />
                 </div>
-                <span style={{ fontSize:10, color:"#94a3b8" }}>Online</span>
+                <span style={{ fontSize:10, color:"#94a3b8" }}>
+                  {sipStatus === "registered" ? "Registered" : sipStatus === "connecting" ? "Connecting…" : sipStatus === "failed" ? "Reg. failed" : "Disconnected"}
+                </span>
               </div>
             </div>
             {(agent?.did || agent?.sip_username || agent?.sip_password) && (
@@ -321,15 +421,27 @@ export default function SoftPhone({ agent, visible, onClose }) {
                 </button>
               ))}
             </div>
-            <button
-              style={{ width:"100%", marginTop:8, background:"linear-gradient(135deg,#22c55e,#16a34a)", border:"none", borderRadius:10, padding:"11px 0", color:"#fff", fontWeight:700, fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:7, boxShadow:"0 3px 10px rgba(34,197,94,0.3)" }}
-              onClick={() => dialInput ? alert(`Calling ${dialInput}…`) : alert("Enter a number first")}
-            >
-              <svg width={15} height={15} viewBox="0 0 24 24" fill="currentColor">
-                <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
-              </svg>
-              Call
-            </button>
+            {callState ? (
+              <button
+                style={{ width:"100%", marginTop:8, background:"linear-gradient(135deg,#ef4444,#dc2626)", border:"none", borderRadius:10, padding:"11px 0", color:"#fff", fontWeight:700, fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:7, boxShadow:"0 3px 10px rgba(239,68,68,0.3)" }}
+                onClick={hangUp}
+              >
+                <svg width={15} height={15} viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
+                </svg>
+                {callState === "ringing_out" ? "Cancel" : "Hang Up"}
+              </button>
+            ) : (
+              <button
+                style={{ width:"100%", marginTop:8, background:"linear-gradient(135deg,#22c55e,#16a34a)", border:"none", borderRadius:10, padding:"11px 0", color:"#fff", fontWeight:700, fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:7, boxShadow:"0 3px 10px rgba(34,197,94,0.3)" }}
+                onClick={makeCall}
+              >
+                <svg width={15} height={15} viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
+                </svg>
+                {callState === "ringing_out" ? "Calling…" : "Call"}
+              </button>
+            )}
           </div>
 
           {/* Recent calls */}
@@ -507,6 +619,33 @@ export default function SoftPhone({ agent, visible, onClose }) {
           )}
         </div>
       </div>
+
+      {/* ── INCOMING CALL BANNER ────────────────────────────────────────────────── */}
+      {callState === "ringing_in" && (
+        <div style={{ position:"absolute", top:54, left:0, right:0, zIndex:20, margin:"0 12px", background:"#1e293b", borderRadius:10, padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", boxShadow:"0 4px 20px rgba(0,0,0,0.4)" }}>
+          <div>
+            <div style={{ fontSize:11, fontWeight:700, color:"#fff" }}>Incoming Call</div>
+            <div style={{ fontSize:12, color:"#94a3b8", marginTop:2, fontFamily:"monospace" }}>{incomingCallerId}</div>
+          </div>
+          <div style={{ display:"flex", gap:8 }}>
+            <button
+              onClick={answerCall}
+              style={{ background:"#22c55e", border:"none", borderRadius:8, padding:"7px 14px", color:"#fff", fontWeight:700, fontSize:12, cursor:"pointer" }}
+            >
+              Answer
+            </button>
+            <button
+              onClick={hangUp}
+              style={{ background:"#ef4444", border:"none", borderRadius:8, padding:"7px 14px", color:"#fff", fontWeight:700, fontSize:12, cursor:"pointer" }}
+            >
+              Decline
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden audio element for remote SIP audio */}
+      <audio ref={remoteAudioRef} autoPlay style={{ display:"none" }} />
 
       {/* ── NEW MESSAGE MODAL ──────────────────────────────────────────────────── */}
       {showNewMsg && (
