@@ -247,8 +247,14 @@ export default function SoftPhone({ agent, visible, onClose }) {
                 <span style={{ fontSize:10, color:"#94a3b8" }}>Online</span>
               </div>
             </div>
-            {(agent?.sip_username || agent?.sip_password) && (
+            {(agent?.did || agent?.sip_username || agent?.sip_password) && (
               <div style={{ background:"#f8fafc", border:"1px solid #e2e8f0", borderRadius:8, padding:"7px 10px", display:"flex", flexDirection:"column", gap:4 }}>
+                {agent?.did && (
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                    <span style={{ fontSize:9, fontWeight:600, color:"#94a3b8", textTransform:"uppercase", letterSpacing:"0.07em" }}>DID</span>
+                    <span style={{ fontSize:11, color:"#334155", fontFamily:"monospace" }}>{agent.did}</span>
+                  </div>
+                )}
                 {agent?.sip_username && (
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                     <span style={{ fontSize:9, fontWeight:600, color:"#94a3b8", textTransform:"uppercase", letterSpacing:"0.07em" }}>SIP User</span>
