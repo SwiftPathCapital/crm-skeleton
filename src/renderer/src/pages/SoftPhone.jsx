@@ -167,9 +167,10 @@ export default function SoftPhone({ agent, visible, onClose }) {
     }
     if (callState) return;
 
-    // Ensure E164 format
-    let dest = dialInput.trim();
-    if (!dest.startsWith("+")) dest = "+" + dest;
+    // Normalise to E164 +1XXXXXXXXXX
+    let digits = dialInput.trim().replace(/\D/g, "");
+    if (!digits.startsWith("1")) digits = "1" + digits;
+    const dest = "+" + digits;
 
     clientRef.current.newCall({
       destinationNumber: dest,
