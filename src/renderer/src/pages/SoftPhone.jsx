@@ -123,10 +123,10 @@ export default function SoftPhone({ agent, visible, onClose }) {
 
     JsSIP.debug.disable("JsSIP:*");
 
-    const socket = new JsSIP.WebSocketInterface("wss://rtc.telnyx.com");
+    const socket = new JsSIP.WebSocketInterface("wss://rtc.telnyx.com/webrtc");
     const ua = new JsSIP.UA({
       sockets:   [socket],
-      uri:       `sip:${agent.sip_username}@sip.telnyx.com`,
+      uri:       `sip:${agent.sip_username}@rtc.telnyx.com`,
       password:  agent.sip_password,
       register:  true,
     });
@@ -175,7 +175,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
     }
     if (callState) return;
 
-    const target = `sip:${dialInput.trim()}@sip.telnyx.com`;
+    const target = `sip:${dialInput.trim()}@rtc.telnyx.com`;
     const session = uaRef.current.call(target, {
       mediaConstraints:    { audio: true, video: false },
       rtcOfferConstraints: { offerToReceiveAudio: true, offerToReceiveVideo: false },
