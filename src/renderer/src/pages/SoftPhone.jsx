@@ -116,17 +116,34 @@ export default function SoftPhone({ agent, visible, onClose }) {
       if (state === "ringing" && call.direction === "inbound") {
         setIncomingCallerId(call.options?.remoteCallerNumber || "Unknown");
         setCallState("ringing_in");
-      } else if (state === "ringing" && call.direction === "outbound") {
+      } else if (
+        (state === "requesting" || state === "trying" || state === "ringing") &&
+        call.direction === "outbound"
+      ) {
         setCallState("ringing_out");
       } else if (state === "active") {
         callStartRef.current = new Date();
         setCallState("active");
         setCallSeconds(0);
         timerRef.current = setInterval(() => setCallSeconds(s => s + 1), 1000);
-        // Attach remote audio stream
-        if (remoteAudioRef.current && call.remoteStream) {
-          remoteAudioRef.current.srcObject = call.remoteStream;
-          remoteAudioRef.current.play().catch(() => {});
+        // Attach remote audio — try remoteStream first, fall back to peerconnection ontrack
+        const attachAudio = (stream) => {
+          if (remoteAudioRef.current && stream) {
+            remoteAudioRef.current.srcObject = stream;
+            remoteAudioRef.current.play().catch(() => {});
+          }
+        };
+        if (call.remoteStream) {
+          attachAudio(call.remoteStream);
+        } else {
+          try {
+            const pc = call.peer?.instance;
+            if (pc) {
+              pc.ontrack = (e) => { if (e.streams?.[0]) attachAudio(e.streams[0]); };
+            }
+          } catch (_) {}
+          // Fallback: poll once after 800 ms in case stream arrives slightly late
+          setTimeout(() => { if (call.remoteStream) attachAudio(call.remoteStream); }, 800);
         }
       } else if (state === "destroy" || state === "hangup" || state === "done") {
         clearInterval(timerRef.current);
@@ -422,33 +439,37 @@ export default function SoftPhone({ agent, visible, onClose }) {
           </div>
 
           {/* Active call panel OR dialpad */}
-          {callState === "active" ? (
+          {(callState === "active" || callState === "ringing_out") ? (
             <div style={{ padding:"16px 14px", display:"flex", flexDirection:"column", alignItems:"center", gap:14 }}>
-              <div style={{ width:48, height:48, borderRadius:"50%", background:"linear-gradient(135deg,#22c55e,#16a34a)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+              <div style={{ width:48, height:48, borderRadius:"50%", background: callState === "active" ? "linear-gradient(135deg,#22c55e,#16a34a)" : "linear-gradient(135deg,#f59e0b,#d97706)", display:"flex", alignItems:"center", justifyContent:"center" }}>
                 <svg width={20} height={20} viewBox="0 0 24 24" fill="#fff"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg>
               </div>
               <div style={{ textAlign:"center" }}>
                 <div style={{ fontSize:13, fontWeight:600, color:"#1e293b", marginBottom:2 }}>{dialInput || "Unknown"}</div>
-                <div style={{ fontSize:20, fontWeight:700, color:"#22c55e", letterSpacing:2, fontFamily:"monospace" }}>{formatDuration(callSeconds)}</div>
+                <div style={{ fontSize:14, fontWeight:600, color: callState === "active" ? "#22c55e" : "#f59e0b", letterSpacing:1, fontFamily:"monospace" }}>
+                  {callState === "active" ? formatDuration(callSeconds) : "Calling…"}
+                </div>
               </div>
               <div style={{ display:"flex", gap:10, width:"100%" }}>
-                <button
-                  onClick={toggleMute}
-                  style={{ flex:1, padding:"10px 0", borderRadius:10, border:"1px solid #e2e8f0", background: isMuted ? "#fef2f2" : "#f8fafc", color: isMuted ? "#ef4444" : "#475569", fontWeight:600, fontSize:12, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
-                >
-                  {isMuted ? (
-                    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 005.12 2.12M15 9.34V4a3 3 0 00-5.94-.6"/><path d="M17 16.95A7 7 0 015 12v-2m14 0v2a7 7 0 01-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-                  ) : (
-                    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-                  )}
-                  {isMuted ? "Unmute" : "Mute"}
-                </button>
+                {callState === "active" && (
+                  <button
+                    onClick={toggleMute}
+                    style={{ flex:1, padding:"10px 0", borderRadius:10, border:"1px solid #e2e8f0", background: isMuted ? "#fef2f2" : "#f8fafc", color: isMuted ? "#ef4444" : "#475569", fontWeight:600, fontSize:12, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}
+                  >
+                    {isMuted ? (
+                      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 005.12 2.12M15 9.34V4a3 3 0 00-5.94-.6"/><path d="M17 16.95A7 7 0 015 12v-2m14 0v2a7 7 0 01-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                    ) : (
+                      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                    )}
+                    {isMuted ? "Unmute" : "Mute"}
+                  </button>
+                )}
                 <button
                   onClick={hangUp}
                   style={{ flex:1, padding:"10px 0", borderRadius:10, border:"none", background:"linear-gradient(135deg,#ef4444,#dc2626)", color:"#fff", fontWeight:700, fontSize:12, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6, boxShadow:"0 3px 10px rgba(239,68,68,0.3)" }}
                 >
                   <svg width={14} height={14} viewBox="0 0 24 24" fill="currentColor"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg>
-                  Hang Up
+                  {callState === "active" ? "Hang Up" : "Cancel"}
                 </button>
               </div>
             </div>
@@ -486,23 +507,13 @@ export default function SoftPhone({ agent, visible, onClose }) {
                     </button>
                   ))}
                 </div>
-                {callState === "ringing_out" ? (
-                  <button
-                    style={{ width:"100%", marginTop:8, background:"linear-gradient(135deg,#ef4444,#dc2626)", border:"none", borderRadius:10, padding:"11px 0", color:"#fff", fontWeight:700, fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:7, boxShadow:"0 3px 10px rgba(239,68,68,0.3)" }}
-                    onClick={hangUp}
-                  >
-                    <svg width={15} height={15} viewBox="0 0 24 24" fill="currentColor"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg>
-                    Cancel
-                  </button>
-                ) : (
-                  <button
-                    style={{ width:"100%", marginTop:8, background:"linear-gradient(135deg,#22c55e,#16a34a)", border:"none", borderRadius:10, padding:"11px 0", color:"#fff", fontWeight:700, fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:7, boxShadow:"0 3px 10px rgba(34,197,94,0.3)" }}
-                    onClick={makeCall}
-                  >
-                    <svg width={15} height={15} viewBox="0 0 24 24" fill="currentColor"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg>
-                    Call
-                  </button>
-                )}
+                <button
+                  style={{ width:"100%", marginTop:8, background:"linear-gradient(135deg,#22c55e,#16a34a)", border:"none", borderRadius:10, padding:"11px 0", color:"#fff", fontWeight:700, fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:7, boxShadow:"0 3px 10px rgba(34,197,94,0.3)" }}
+                  onClick={makeCall}
+                >
+                  <svg width={15} height={15} viewBox="0 0 24 24" fill="currentColor"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg>
+                  Call
+                </button>
               </div>
             </>
           )}
