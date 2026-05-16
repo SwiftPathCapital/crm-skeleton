@@ -121,7 +121,7 @@ export default function Sidebar({ activeView, setActiveView, softphoneOpen, agen
         </div>
       </div>
 
-      <nav className="flex-1 px-3 py-4 space-y-1">
+      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         <p className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider px-3 mb-2">Navigation</p>
         {navItems.map((item) => (
           <button
