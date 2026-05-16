@@ -2,7 +2,7 @@
 import React from "react";
 import LeadTable from "../components/LeadTable";
 
-export default function MyLeads({ leads, onSaveLead, onRefresh }) {
+export default function MyLeads({ leads, onSaveLead, onRefresh, onOpenEmailClient }) {
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between mb-6">
@@ -22,7 +22,7 @@ export default function MyLeads({ leads, onSaveLead, onRefresh }) {
           Refresh
         </button>
       </div>
-      <LeadTable leads={leads} onSaveLead={onSaveLead} />
+      <LeadTable leads={leads} onSaveLead={onSaveLead} onOpenEmailClient={onOpenEmailClient} />
     </div>
   );
 }

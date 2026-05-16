@@ -47,7 +47,7 @@ function StatusBadge({ status }) {
   );
 }
 
-export default function LeadTable({ leads, onSaveLead }) {
+export default function LeadTable({ leads, onSaveLead, onOpenEmailClient }) {
   const [expandedId, setExpandedId] = useState(null);
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("all");
@@ -188,6 +188,7 @@ export default function LeadTable({ leads, onSaveLead }) {
                         <LeadExpandedRow
                           lead={lead}
                           onSave={(updated) => onSaveLead(updated)}
+                          onOpenEmailClient={onOpenEmailClient}
                         />
                       </td>
                     </tr>

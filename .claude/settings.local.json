@@ -11,7 +11,21 @@
       "WebFetch(domain:support.telnyx.com)",
       "WebSearch",
       "Bash(npm install *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(powershell -Command \"Expand-Archive -Path 'files \\(1\\).zip' -DestinationPath 'files_extracted' -Force\")",
+      "Bash(git pull *)",
+      "Bash(git stash *)",
+      "Bash(railway version *)",
+      "Bash(railway up *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\free2\\\\OneDrive\\\\Desktop\\\\crm-skeleton\" -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "PowerShell(head *)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\free2\\\\OneDrive\\\\Desktop\\\\crm-skeleton\\\\src\\\\renderer\\\\src\" -Recurse | Sort-Object FullName | ForEach-Object { $_.FullName -replace [regex]::Escape\\(\"C:\\\\Users\\\\free2\\\\OneDrive\\\\Desktop\\\\crm-skeleton\\\\src\\\\renderer\\\\src\"\\), \"\" })",
+      "PowerShell(dir \"C:\\\\Users\\\\free2\\\\OneDrive\\\\Desktop\\\\crm-skeleton\\\\src\\\\renderer\\\\src\" | where {$_.PSIsContainer -eq $false})",
+      "Bash(Select-Object -First 30)",
+      "Bash(Format-Table FullName)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\free2\\\\OneDrive\\\\Desktop\\\\crm-skeleton\" -Recurse -Directory | Select-Object -First 30 | ForEach-Object { $_.FullName })",
+      "Bash(npm run *)"
     ]
   }
 }

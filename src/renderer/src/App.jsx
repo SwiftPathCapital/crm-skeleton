@@ -7,6 +7,7 @@ import AgentManagement from "./pages/AgentManagement";
 import DealPipeline from "./pages/DealPipeline";
 import Clients from "./pages/Clients";
 import ScriptsPage from "./pages/ScriptsPage";
+import EmailClient from "./pages/EmailClient";
 import Login from "./pages/Login";
 import { supabase } from "./lib/supabaseClient";
 
@@ -15,6 +16,7 @@ export default function App() {
   const [agent, setAgent] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [activeView, setActiveView] = useState("my-leads");
+  const [emailClientProps, setEmailClientProps] = useState({});
   const [leads, setLeads] = useState([]);
   const [leadsLoading, setLeadsLoading] = useState(false);
 
@@ -102,6 +104,11 @@ export default function App() {
     }
   }
 
+  function openEmailClient(props = {}) {
+    setEmailClientProps(props);
+    setActiveView("email-client");
+  }
+
   function handleLogin(user, agentProfile) {
     setSession({ user });
     setAgent(agentProfile);
@@ -132,25 +139,34 @@ export default function App() {
     }
     switch (activeView) {
       case "my-leads":
-        return <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} />;
+        return <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} onOpenEmailClient={openEmailClient} />;
       case "scripts":
         return <ScriptsPage />;
+      case "email-client":
+        return <EmailClient {...emailClientProps} />;
       case "admin-dashboard":
-        return agent.role === "admin" ? <AdminDashboard /> : <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} />;
+        return agent.role === "admin" ? <AdminDashboard /> : <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} onOpenEmailClient={openEmailClient} />;
       case "agent-management":
-        return agent.role === "admin" ? <AgentManagement /> : <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} />;
+        return agent.role === "admin" ? <AgentManagement /> : <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} onOpenEmailClient={openEmailClient} />;
       case "deal-pipeline":
         return <DealPipeline agent={agent} />;
       case "clients":
         return <Clients agent={agent} />;
       default:
-        return <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} />;
+        return <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} onOpenEmailClient={openEmailClient} />;
     }
   }
 
   return (
     <div className="flex h-screen bg-[#080b10] text-white overflow-hidden font-sans">
-      <Sidebar activeView={activeView} setActiveView={setActiveView} agent={agent} />
+      <Sidebar
+        activeView={activeView}
+        setActiveView={(view) => {
+          if (view !== "email-client") setEmailClientProps({});
+          setActiveView(view);
+        }}
+        agent={agent}
+      />
       {/* Dialer iframe stays mounted at all times so VICIdial session survives navigation */}
       <iframe
         src="https://dialer.swiftpathcapital.net/agc/vicidial.php"
