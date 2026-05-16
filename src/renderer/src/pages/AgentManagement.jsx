@@ -86,7 +86,7 @@ export default function AgentManagement() {
       setEditError(null);
       console.log("[updateAgent] editAgent.id:", editAgent.id);
       console.log("[updateAgent] editAgent:", editAgent);
-      const { error: updateError } = await supabase
+      const { data: updateData, error: updateError } = await supabase
         .from("agents")
         .update({
           full_name: editForm.full_name,
@@ -96,7 +96,10 @@ export default function AgentManagement() {
           sip_username: editForm.sip_username || null,
           sip_password: editForm.sip_password || null,
         })
-        .eq("id", editAgent.id);
+        .eq("id", editAgent.id)
+        .select();
+      console.log("[updateAgent] data:", updateData);
+      console.log("[updateAgent] error:", updateError);
       if (updateError) throw updateError;
       setSuccess(`Agent ${editForm.full_name} updated successfully!`);
       setEditAgent(null);

@@ -25,7 +25,12 @@
       "Bash(Select-Object -First 30)",
       "Bash(Format-Table FullName)",
       "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\free2\\\\OneDrive\\\\Desktop\\\\crm-skeleton\" -Recurse -Directory | Select-Object -First 30 | ForEach-Object { $_.FullName })",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(git restore *)",
+      "Bash(node --check index.js)",
+      "Bash(dir \"C:\\\\Users\\\\free2\\\\OneDrive\\\\Desktop\\\\crm-skeleton\\\\src\\\\renderer\\\\src\\\\assets\\\\logo.png\")",
+      "Bash(node -e \"require\\('sharp'\\); console.log\\('sharp available'\\)\")",
+      "Bash(node -e ' *)"
     ]
   }
 }
