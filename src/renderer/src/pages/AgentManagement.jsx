@@ -101,6 +101,7 @@ export default function AgentManagement() {
       console.log("[updateAgent] data:", updateData);
       console.log("[updateAgent] error:", updateError);
       if (updateError) throw updateError;
+      setAgents(prev => prev.map(a => a.id === editAgent.id ? { ...a, ...editForm } : a));
       setSuccess(`Agent ${editForm.full_name} updated successfully!`);
       setEditAgent(null);
       fetchAgents();
