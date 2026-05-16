@@ -1,4 +1,5 @@
 -- Run once in the Supabase SQL editor.
--- Adds SIP username column to the agents table.
+-- Adds SIP columns to the agents table.
 
 ALTER TABLE agents ADD COLUMN IF NOT EXISTS sip_username TEXT;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS sip_password TEXT;
