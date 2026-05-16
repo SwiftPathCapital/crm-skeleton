@@ -84,6 +84,8 @@ export default function AgentManagement() {
     try {
       setSaving(true);
       setEditError(null);
+      console.log("[updateAgent] editAgent.id:", editAgent.id);
+      console.log("[updateAgent] editAgent:", editAgent);
       const { error: updateError } = await supabase
         .from("agents")
         .update({
