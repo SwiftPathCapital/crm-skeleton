@@ -31,102 +31,9 @@ function LiveTimer({ startTime }) {
   return <span className="font-mono text-emerald-400">{formatDuration(secs)}</span>;
 }
 
-const DISPOSITIONS = ["completed", "no answer", "voicemail", "not interested", "callback", "converted"];
-
-function EditModal({ call, onClose, onSave }) {
-  const [form, setForm] = useState({
-    agent_id: call.agent_id || "",
-    lead_phone: call.lead_phone || "",
-    disposition: call.disposition || "",
-  });
-  const [saving, setSaving] = useState(false);
-
-  async function handleSave() {
-    setSaving(true);
-    try {
-      await onSave(call.id, {
-        agent_id: form.agent_id || null,
-        lead_phone: form.lead_phone || null,
-        disposition: form.disposition || null,
-      });
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-[#0d1117] border border-[#1e2130] rounded-xl p-6 w-full max-w-md shadow-2xl">
-        <div className="flex items-center justify-between mb-5">
-          <h3 className="text-white font-semibold text-base">Edit Call Record</h3>
-          <button onClick={onClose} className="text-[#4a5568] hover:text-white transition-colors">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="flex flex-col gap-4">
-          {[
-            { label: "Agent Name", key: "agent_id", placeholder: "e.g. Glenn", type: "text" },
-            { label: "Lead Phone", key: "lead_phone", placeholder: "+13055551234", type: "text" },
-          ].map(({ label, key, placeholder, type }) => (
-            <div key={key}>
-              <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider block mb-2">
-                {label}
-              </label>
-              <input
-                type={type}
-                value={form[key]}
-                onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-                placeholder={placeholder}
-                className="w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a84c] transition-colors"
-              />
-            </div>
-          ))}
-
-          <div>
-            <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider block mb-2">
-              Disposition
-            </label>
-            <select
-              value={form.disposition}
-              onChange={e => setForm(f => ({ ...f, disposition: e.target.value }))}
-              className="w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a84c] transition-colors"
-            >
-              <option value="">— Select —</option>
-              {DISPOSITIONS.map(d => (
-                <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="flex gap-3 mt-6">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="px-5 py-2 bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] text-sm font-semibold rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity"
-          >
-            {saving ? "Saving…" : "Save"}
-          </button>
-          <button
-            onClick={onClose}
-            className="px-5 py-2 bg-[#1e2130] text-[#8892a4] text-sm rounded-lg hover:text-white transition-colors"
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export default function AdminDashboard() {
   const [activeCalls, setActiveCalls] = useState([]);
-  const [callHistory, setCallHistory] = useState([]);
-  const [syncing, setSyncing] = useState(false);
-  const [editingCall, setEditingCall] = useState(null);
   const [softphoneLogs, setSoftphoneLogs] = useState([]);
   const [logsLoading, setLogsLoading] = useState(false);
 
@@ -146,17 +53,6 @@ export default function AdminDashboard() {
     return () => { live = false; clearInterval(id); };
   }, []);
 
-  const loadHistory = useCallback(async () => {
-    const { data } = await supabase
-      .from("calls")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(50);
-    if (data) setCallHistory(data);
-  }, []);
-
-  useEffect(() => { loadHistory(); }, [loadHistory]);
-
   const loadSoftphoneLogs = useCallback(async () => {
     setLogsLoading(true);
     try {
@@ -173,37 +69,6 @@ export default function AdminDashboard() {
   }, []);
 
   useEffect(() => { loadSoftphoneLogs(); }, [loadSoftphoneLogs]);
-
-  async function syncRecordings() {
-    setSyncing(true);
-    try {
-      const r = await fetch(`/api/recordings`);
-      if (!r.ok) return;
-      const { data: recs } = await r.json();
-      for (const rec of recs || []) {
-        await supabase.from("calls").upsert({
-          telnyx_recording_id: rec.id,
-          agent_id: null,
-          lead_phone: null,
-          duration: Math.round((rec.duration_millis || 0) / 1000),
-          disposition: "completed",
-          recording_url: rec.download_url || rec.download_urls?.mp3 || null,
-          created_at: rec.created_at,
-        }, { onConflict: "telnyx_recording_id" });
-      }
-      await loadHistory();
-    } finally {
-      setSyncing(false);
-    }
-  }
-
-  async function handleSaveEdit(id, updates) {
-    await supabase.from("calls").update(updates).eq("id", id);
-    setCallHistory(prev =>
-      prev.map(c => (c.id === id ? { ...c, ...updates } : c))
-    );
-    setEditingCall(null);
-  }
 
   const displayCalls = (() => {
     const map = {};
@@ -382,112 +247,7 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Call History */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-white font-semibold text-lg">Call History</h2>
-          <button
-            onClick={syncRecordings}
-            disabled={syncing}
-            className="flex items-center gap-2 text-xs bg-[#1e2130] hover:bg-[#252b3d] text-[#8892a4] hover:text-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
-          >
-            {syncing ? (
-              <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            )}
-            {syncing ? "Syncing…" : "Sync Recordings"}
-          </button>
-        </div>
-        <div className="border border-[#1e2130] rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-[#0f1117] border-b border-[#1e2130]">
-                {["Date", "Agent", "Lead Phone", "Duration", "Disposition", "Recording", ""].map((h, i) => (
-                  <th key={i} className="text-left text-[#4a5568] font-semibold text-xs uppercase tracking-wider px-4 py-3">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {callHistory.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="text-center text-[#4a5568] text-sm py-8">
-                    No call history. Click "Sync Recordings" to import from Telnyx.
-                  </td>
-                </tr>
-              ) : (
-                callHistory.map((call) => (
-                  <tr key={call.id} className="border-b border-[#1e2130] last:border-0 hover:bg-[#111520]">
-                    <td className="px-4 py-3 text-[#4a5568] text-xs">
-                      {new Date(call.created_at).toLocaleDateString("en-US", {
-                        month: "short", day: "numeric", year: "numeric",
-                        hour: "2-digit", minute: "2-digit",
-                      })}
-                    </td>
-                    <td className="px-4 py-3 text-white font-medium">{call.agent_id || "—"}</td>
-                    <td className="px-4 py-3 text-[#8892a4] font-mono text-xs">{call.lead_phone || "—"}</td>
-                    <td className="px-4 py-3 text-[#8892a4] font-mono">
-                      {call.duration != null ? formatDuration(call.duration) : "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      {call.disposition ? (
-                        <span className="text-xs px-2 py-0.5 rounded-md bg-[#1e2130] text-[#8892a4]">
-                          {call.disposition}
-                        </span>
-                      ) : "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      {call.recording_url ? (
-                        <div className="flex items-center gap-2">
-                          <audio
-                            controls
-                            preload="none"
-                            src={call.recording_url}
-                            className="h-8 max-w-[180px]"
-                          />
-                          <a
-                            href={call.recording_url}
-                            download
-                            className="text-[#4a5568] hover:text-white transition-colors flex-shrink-0"
-                            title="Download recording"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                            </svg>
-                          </a>
-                        </div>
-                      ) : (
-                        <span className="text-[#4a5568] text-xs">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => setEditingCall(call)}
-                        className="text-[#4a5568] hover:text-white transition-colors"
-                        title="Edit record"
-                      >
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                        </svg>
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
 
-      {editingCall && (
-        <EditModal
-          call={editingCall}
-          onClose={() => setEditingCall(null)}
-          onSave={handleSaveEdit}
-        />
-      )}
     </div>
   );
 }
