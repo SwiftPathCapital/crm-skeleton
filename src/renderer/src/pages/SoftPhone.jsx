@@ -173,7 +173,8 @@ export default function SoftPhone({ agent, visible, onClose }) {
 
     clientRef.current.newCall({
       destinationNumber: dest,
-      callerNumber:      agent?.did || undefined,
+      callerNumber:      agent?.did || "+17869460772",
+      callerIdNumber:    agent?.did || "+17869460772",
     });
   }
 
