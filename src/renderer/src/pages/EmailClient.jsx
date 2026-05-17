@@ -235,16 +235,25 @@ export default function EmailClient({ initialCompose = null, initialEmailId = nu
 
   async function checkZohoStatus() {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setZohoConnected(false); return; }
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      console.log("[checkZohoStatus] supabase user:", user, "authError:", authError);
+      if (!user) {
+        console.log("[checkZohoStatus] No user — setting disconnected");
+        setZohoConnected(false);
+        return;
+      }
+      console.log("[checkZohoStatus] userId:", user.id);
       setUserId(user.id);
-      const { data } = await supabase
+      const { data, error: tokenError } = await supabase
         .from("zoho_tokens")
         .select("id")
         .eq("id", user.id)
         .maybeSingle();
+      console.log("[checkZohoStatus] zoho_tokens row:", data, "tokenError:", tokenError);
+      console.log("[checkZohoStatus] result → zohoConnected:", !!data);
       setZohoConnected(!!data);
-    } catch {
+    } catch (err) {
+      console.error("[checkZohoStatus] caught exception:", err);
       setZohoConnected(false);
     }
   }
