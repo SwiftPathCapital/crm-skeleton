@@ -1,6 +1,7 @@
 // src/renderer/src/pages/EmailClient.jsx
 import React, { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
+import { useApp } from "../context/AppContext";
 
 // In Electron (file:// protocol) talk to the local Express server.
 // On Railway/web the renderer is served by the same origin, so use relative URLs.
@@ -185,6 +186,8 @@ function ComposeModal({ onClose, onSend, initialTo = "", initialSubject = "", in
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function EmailClient({ initialCompose = null, initialEmailId = null }) {
+  const { zohoConnected, setZohoConnected, userId, disconnectZoho } = useApp();
+
   const [folder,        setFolder]        = useState("inbox");
   const [emails,        setEmails]        = useState([]);
   const [selectedEmail, setSelectedEmail] = useState(null);
@@ -192,16 +195,12 @@ export default function EmailClient({ initialCompose = null, initialEmailId = nu
   const [composePreset, setComposePreset] = useState(initialCompose || {});
   const [search,        setSearch]        = useState("");
   const [loading,       setLoading]       = useState(true);
-  const [zohoConnected, setZohoConnected] = useState(null); // null = still checking
-  const [userId,        setUserId]        = useState(null);
-  const initHandled        = React.useRef(false);
-  const messageHandlerRef  = React.useRef(null);
-  const pollIntervalRef    = React.useRef(null);
+  const initHandled       = React.useRef(false);
+  const messageHandlerRef = React.useRef(null);
+  const pollIntervalRef   = React.useRef(null);
 
-  // Check Zoho connection once on mount; triggers loadEmails when resolved.
+  // Clean up any in-flight OAuth popup listeners on unmount — do NOT disconnect Zoho.
   useEffect(() => {
-    checkZohoStatus();
-    // On unmount: remove any pending OAuth listeners/intervals — do NOT disconnect Zoho.
     return () => {
       if (messageHandlerRef.current) {
         window.removeEventListener("message", messageHandlerRef.current);
@@ -223,7 +222,7 @@ export default function EmailClient({ initialCompose = null, initialEmailId = nu
   // Deep-link to a specific email after real data arrives.
   useEffect(() => {
     if (!initialEmailId || initHandled.current || loading) return;
-    const isReal = emails.some((e) => !String(e.id).startsWith("demo-"));
+    const isReal = emails.some((e) => e.id);
     if (!isReal) return;
     const target = emails.find((e) => e.id === initialEmailId);
     if (target) {
@@ -232,31 +231,6 @@ export default function EmailClient({ initialCompose = null, initialEmailId = nu
       selectEmail(target);
     }
   }, [initialEmailId, emails, loading]);
-
-  async function checkZohoStatus() {
-    try {
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      console.log("[checkZohoStatus] supabase user:", user, "authError:", authError);
-      if (!user) {
-        console.log("[checkZohoStatus] No user — setting disconnected");
-        setZohoConnected(false);
-        return;
-      }
-      console.log("[checkZohoStatus] userId:", user.id);
-      setUserId(user.id);
-      const { data, error: tokenError } = await supabase
-        .from("zoho_tokens")
-        .select("id")
-        .eq("id", user.id)
-        .maybeSingle();
-      console.log("[checkZohoStatus] zoho_tokens row:", data, "tokenError:", tokenError);
-      console.log("[checkZohoStatus] result → zohoConnected:", !!data);
-      setZohoConnected(!!data);
-    } catch (err) {
-      console.error("[checkZohoStatus] caught exception:", err);
-      setZohoConnected(false);
-    }
-  }
 
   async function loadEmails() {
     setLoading(true);
@@ -366,14 +340,6 @@ export default function EmailClient({ initialCompose = null, initialEmailId = nu
       }
     }, 1000);
     pollIntervalRef.current = poll;
-  }
-
-  async function disconnectZoho() {
-    if (!userId) return;
-    try {
-      await supabase.from("zoho_tokens").delete().eq("id", userId);
-    } catch { /* best-effort */ }
-    setZohoConnected(false);
   }
 
   async function toggleStar(e, targetId) {

@@ -1,4 +1,4 @@
-// src/renderer/src/App.jsx — Phase 3 with real auth
+// src/renderer/src/App.jsx
 import React, { useState, useEffect } from "react";
 import Sidebar from "./components/Sidebar";
 import MyLeads from "./pages/MyLeads";
@@ -13,49 +13,65 @@ import CalendarPage from "./pages/CalendarPage";
 import NewApplication from "./pages/NewApplication";
 import Login from "./pages/Login";
 import { supabase } from "./lib/supabaseClient";
+import { AppProvider, useApp } from "./context/AppContext";
+
+// ── Auth gate ─────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [session, setSession] = useState(null);
-  const [agent, setAgent] = useState(null);
+  const [session,     setSession]     = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [activeView, setActiveView] = useState("my-leads");
-  const [emailClientProps, setEmailClientProps] = useState({});
-  const [softphoneOpen, setSoftphoneOpen] = useState(false);
-  const [leads, setLeads] = useState([]);
-  const [leadsLoading, setLeadsLoading] = useState(false);
 
-  // Listen for auth state changes
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      if (session) fetchAgentProfile(session.user.id);
-      else setAuthLoading(false);
+      setAuthLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      if (session) fetchAgentProfile(session.user.id);
-      else { setAgent(null); setAuthLoading(false); }
+      setAuthLoading(false);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  async function fetchAgentProfile(userId) {
-    try {
-      const { data, error } = await supabase
-        .from("agents")
-        .select("*")
-        .eq("id", userId)
-        .single();
-      if (error) throw error;
-      setAgent(data);
-    } catch (err) {
-      console.error("Error fetching agent profile:", err);
-    } finally {
-      setAuthLoading(false);
-    }
+  function handleLogin(user) {
+    setSession({ user });
   }
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[#080b10] flex items-center justify-center">
+        <div className="w-10 h-10 border-2 border-[#c9a84c] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!session) {
+    return <Login onLogin={handleLogin} />;
+  }
+
+  return (
+    <AppProvider>
+      <AppShell />
+    </AppProvider>
+  );
+}
+
+// ── Main shell (reads from AppContext) ────────────────────────────────────────
+
+function AppShell() {
+  const { agent, userId } = useApp();
+
+  const [activeView,       setActiveView]       = useState("my-leads");
+  const [emailClientProps, setEmailClientProps] = useState({});
+  const [softphoneOpen,    setSoftphoneOpen]    = useState(false);
+  const [leads,            setLeads]            = useState([]);
+  const [leadsLoading,     setLeadsLoading]     = useState(false);
+
+  useEffect(() => {
+    if (agent) fetchLeads();
+  }, [agent]);
 
   const fetchLeads = async () => {
     try {
@@ -71,9 +87,8 @@ export default function App() {
           .order("created_at", { ascending: false })
           .range(from, from + pageSize - 1);
 
-        // Agents only see their assigned leads
         if (agent?.role === "agent") {
-          query = query.eq("assigned_to", session.user.id);
+          query = query.eq("assigned_to", userId);
         }
 
         const { data, error } = await query;
@@ -90,10 +105,6 @@ export default function App() {
       setLeadsLoading(false);
     }
   };
-
-  useEffect(() => {
-    if (agent) fetchLeads();
-  }, [agent]);
 
   async function handleSaveLead(updatedLead) {
     try {
@@ -113,13 +124,8 @@ export default function App() {
     setActiveView("email-client");
   }
 
-  function handleLogin(user, agentProfile) {
-    setSession({ user });
-    setAgent(agentProfile);
-  }
-
-  // Loading spinner
-  if (authLoading) {
+  // Wait for the agent profile to load from context before rendering the shell.
+  if (!agent) {
     return (
       <div className="min-h-screen bg-[#080b10] flex items-center justify-center">
         <div className="w-10 h-10 border-2 border-[#c9a84c] border-t-transparent rounded-full animate-spin" />
@@ -127,16 +133,11 @@ export default function App() {
     );
   }
 
-  // Not logged in — show login screen
-  if (!session || !agent) {
-    return <Login onLogin={handleLogin} />;
-  }
-
   function renderView() {
     if (leadsLoading) {
       return (
         <div className="flex items-center justify-center h-full">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#c9a84c]"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#c9a84c]" />
           <span className="ml-3 text-[#4a5568]">Loading your leads...</span>
         </div>
       );
