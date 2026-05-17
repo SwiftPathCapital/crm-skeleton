@@ -4,7 +4,6 @@ const path = require('path');
 const axios = require('axios');
 const ws = require('ws');
 const { createClient } = require('@supabase/supabase-js');
-const nodemailer = require('nodemailer');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 const fromNumber = process.env.TELNYX_PHONE_NUMBER;
@@ -551,28 +550,25 @@ app.post('/api/send-application', async (req, res) => {
 </html>`;
 
   try {
-    if (!process.env.ZOHO_SMTP_USER || !process.env.ZOHO_SMTP_PASS) {
-      return res.status(500).json({ error: 'ZOHO_SMTP_USER or ZOHO_SMTP_PASS not configured' });
-    }
-    const transporter = nodemailer.createTransport({
-      host: 'smtp.zoho.com',
-      port: 465,
-      secure: true,
-      auth: {
-        user: process.env.ZOHO_SMTP_USER,
-        pass: process.env.ZOHO_SMTP_PASS,
+    const agentId = process.env.ZOHO_AGENT_ID;
+    if (!agentId) return res.status(500).json({ error: 'ZOHO_AGENT_ID not configured' });
+
+    const { accessToken, accountId, apiDomain } = await getZohoToken(agentId);
+    const sendRes = await axios.post(
+      `${apiDomain}/api/accounts/${accountId}/messages`,
+      {
+        toAddress:   'submissions@swiftpathtocapital.com',
+        subject:     `New MCA Application — ${v(businessName)}`,
+        content:     html,
+        mailFormat:  'html',
       },
-    });
-    const info = await transporter.sendMail({
-      from: process.env.ZOHO_SMTP_USER,
-      to:   'submissions@swiftpathtocapital.com',
-      subject: `New MCA Application — ${v(businessName)}`,
-      html,
-    });
-    res.json({ success: true, id: info.messageId });
+      { headers: { Authorization: `Zoho-oauthtoken ${accessToken}` } }
+    );
+    const messageId = sendRes.data?.data?.messageId;
+    res.json({ success: true, id: messageId });
   } catch (err) {
-    console.error('[send-application]', err.message);
-    res.status(500).json({ error: err.message });
+    console.error('[send-application]', err.response?.data || err.message);
+    res.status(err.status || 500).json({ error: err.response?.data || err.message });
   }
 });
 
@@ -583,6 +579,5 @@ app.get('*', (req, res) => {
 app.listen(3001, () => {
   console.log('Server running on port 3001');
   console.log('TELNYX_API_KEY:', API_KEY ? `set (${API_KEY.slice(0, 8)}...)` : 'MISSING');
-  console.log('ZOHO_SMTP_USER:', process.env.ZOHO_SMTP_USER || 'MISSING');
-  console.log('ZOHO_SMTP_PASS:', process.env.ZOHO_SMTP_PASS ? 'set' : 'MISSING');
+  console.log('ZOHO_AGENT_ID:', process.env.ZOHO_AGENT_ID || 'MISSING');
 });
