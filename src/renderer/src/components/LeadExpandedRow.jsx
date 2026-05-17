@@ -1,6 +1,7 @@
 // src/components/LeadExpandedRow.jsx
 import React, { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
+import { useApp } from "../context/AppContext";
 
 function Field({ label, fieldKey, value, onChange, type = "text", fullWidth = false }) {
   return (
@@ -133,6 +134,7 @@ function AppField({ label, value, onChange, type = "text", placeholder = "", req
 }
 
 function ApplicationModal({ lead, onClose }) {
+  const { userId } = useApp();
   const ownerName = [lead.first_name, lead.last_name].filter(Boolean).join(" ") || lead.name || "";
   const businessAddress = [lead.address, lead.city, lead.zip].filter(Boolean).join(", ");
   const [form, setForm] = useState({
@@ -161,7 +163,7 @@ function ApplicationModal({ lead, onClose }) {
       const res = await fetch("/api/send-application", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, agentId: userId }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));

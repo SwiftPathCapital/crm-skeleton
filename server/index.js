@@ -481,6 +481,7 @@ app.delete('/api/calendar/events/:id', async (req, res) => {
 // ── POST /api/send-application ────────────────────────────────────────────────
 app.post('/api/send-application', async (req, res) => {
   const {
+    agentId,
     businessName, dba, businessAddress, businessStartDate, ein,
     ownerName, ownerSS, ownerDOB, ownerAddress, printName,
   } = req.body;
@@ -550,9 +551,8 @@ app.post('/api/send-application', async (req, res) => {
 </html>`;
 
   try {
-    const agentId = process.env.ZOHO_AGENT_ID;
-    console.log('[send-application] agentId from env:', agentId);
-    if (!agentId) return res.status(500).json({ error: 'ZOHO_AGENT_ID not configured' });
+    console.log('[send-application] agentId from request body:', agentId);
+    if (!agentId) return res.status(400).json({ error: 'agentId required' });
 
     const { data: tokenRow, error: tokenError } = await supabase
       .from('zoho_tokens')
@@ -590,5 +590,4 @@ app.get('*', (req, res) => {
 app.listen(3001, () => {
   console.log('Server running on port 3001');
   console.log('TELNYX_API_KEY:', API_KEY ? `set (${API_KEY.slice(0, 8)}...)` : 'MISSING');
-  console.log('ZOHO_AGENT_ID:', process.env.ZOHO_AGENT_ID || 'MISSING');
 });

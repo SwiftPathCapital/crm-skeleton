@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useApp } from "../context/AppContext";
 
 function AppField({ label, value, onChange, type = "text", placeholder = "", required = false, fullWidth = false }) {
   return (
@@ -32,6 +33,7 @@ const EMPTY = {
 };
 
 export default function NewApplication() {
+  const { userId } = useApp();
   const [form, setForm] = useState(EMPTY);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -47,7 +49,7 @@ export default function NewApplication() {
       const res = await fetch("/api/send-application", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, agentId: userId }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
