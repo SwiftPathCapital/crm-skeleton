@@ -4,7 +4,7 @@ const path = require('path');
 const axios = require('axios');
 const ws = require('ws');
 const { createClient } = require('@supabase/supabase-js');
-const { Resend } = require('resend');
+const nodemailer = require('nodemailer');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 const fromNumber = process.env.TELNYX_PHONE_NUMBER;
@@ -551,18 +551,25 @@ app.post('/api/send-application', async (req, res) => {
 </html>`;
 
   try {
-    if (!process.env.RESEND_API_KEY) {
-      return res.status(500).json({ error: 'RESEND_API_KEY not configured' });
+    if (!process.env.ZOHO_SMTP_USER || !process.env.ZOHO_SMTP_PASS) {
+      return res.status(500).json({ error: 'ZOHO_SMTP_USER or ZOHO_SMTP_PASS not configured' });
     }
-    const resend = new Resend(process.env.RESEND_API_KEY);
-    const { data, error } = await resend.emails.send({
-      from: 'applications@swiftpathcapital.net',
+    const transporter = nodemailer.createTransport({
+      host: 'smtp.zoho.com',
+      port: 465,
+      secure: true,
+      auth: {
+        user: process.env.ZOHO_SMTP_USER,
+        pass: process.env.ZOHO_SMTP_PASS,
+      },
+    });
+    const info = await transporter.sendMail({
+      from: process.env.ZOHO_SMTP_USER,
       to:   'submissions@swiftpathtocapital.com',
       subject: `New MCA Application — ${v(businessName)}`,
       html,
     });
-    if (error) throw new Error(JSON.stringify(error));
-    res.json({ success: true, id: data?.id });
+    res.json({ success: true, id: info.messageId });
   } catch (err) {
     console.error('[send-application]', err.message);
     res.status(500).json({ error: err.message });
@@ -576,5 +583,6 @@ app.get('*', (req, res) => {
 app.listen(3001, () => {
   console.log('Server running on port 3001');
   console.log('TELNYX_API_KEY:', API_KEY ? `set (${API_KEY.slice(0, 8)}...)` : 'MISSING');
-  console.log('RESEND_API_KEY:', process.env.RESEND_API_KEY ? `set (${process.env.RESEND_API_KEY.slice(0, 8)}...)` : 'MISSING');
+  console.log('ZOHO_SMTP_USER:', process.env.ZOHO_SMTP_USER || 'MISSING');
+  console.log('ZOHO_SMTP_PASS:', process.env.ZOHO_SMTP_PASS ? 'set' : 'MISSING');
 });
