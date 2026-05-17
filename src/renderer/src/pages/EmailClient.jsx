@@ -16,53 +16,6 @@ const FOLDERS = [
   { id: "starred", label: "Starred" },
 ];
 
-const DEMO_EMAILS = [
-  {
-    id: "demo-1",
-    from_email: "john.smith@acmecorp.com",
-    to_email:   "admin@swiftpathcapital.net",
-    subject:    "Re: Funding Application — $150,000",
-    body:       "Hi,\n\nThank you for reaching out about the funding opportunity. I've reviewed the terms and I'm very interested in moving forward. Could we schedule a call for this week to discuss next steps?\n\nBest regards,\nJohn Smith\nACME Corp",
-    sent_at:    new Date(Date.now() - 1_800_000).toISOString(),
-    folder: "inbox", read: false, starred: true, lead_id: null,
-  },
-  {
-    id: "demo-2",
-    from_email: "sarah.jones@meridiantech.io",
-    to_email:   "admin@swiftpathcapital.net",
-    subject:    "Documents for Application",
-    body:       "Hello,\n\nPlease find attached the bank statements and business documents you requested for our funding application. Let me know if you need anything else.\n\nThanks,\nSarah Jones\nMeridian Technology",
-    sent_at:    new Date(Date.now() - 7_200_000).toISOString(),
-    folder: "inbox", read: false, starred: false, lead_id: null,
-  },
-  {
-    id: "demo-3",
-    from_email: "admin@swiftpathcapital.net",
-    to_email:   "mike.wilson@coastalrestaurants.com",
-    subject:    "Your Funding Application is Under Review",
-    body:       "Hi Mike,\n\nI wanted to let you know that your application for $75,000 in working capital is currently under review with our underwriting team. We expect a decision within 24–48 hours.\n\nBest regards,\nSwift Path Capital",
-    sent_at:    new Date(Date.now() - 86_400_000).toISOString(),
-    folder: "sent", read: true, starred: false, lead_id: null,
-  },
-  {
-    id: "demo-4",
-    from_email: "admin@swiftpathcapital.net",
-    to_email:   "prospect@example.com",
-    subject:    "Follow-up: Q2 Funding Options",
-    body:       "Hi,\n\nI wanted to follow up regarding the funding options we discussed on our last call. We have several programs that could be a great fit for your business...",
-    sent_at:    new Date(Date.now() - 172_800_000).toISOString(),
-    folder: "drafts", read: true, starred: false, lead_id: null,
-  },
-  {
-    id: "demo-5",
-    from_email: "robert.chang@techstartup.co",
-    to_email:   "admin@swiftpathcapital.net",
-    subject:    "Interested in MCA Funding",
-    body:       "Hello,\n\nI came across Swift Path Capital through a colleague and I'm interested in learning more about your merchant cash advance options. Our startup has been operating for 18 months with strong monthly revenue.\n\nCan we connect this week?\n\nBest,\nRobert Chang",
-    sent_at:    new Date(Date.now() - 259_200_000).toISOString(),
-    folder: "inbox", read: true, starred: true, lead_id: null,
-  },
-];
 
 // Map a Zoho Mail API message object to the app's internal email shape.
 function mapZohoMessage(zm, folder) {
@@ -82,7 +35,7 @@ function mapZohoMessage(zm, folder) {
   };
 }
 
-// Only Supabase UUIDs should trigger DB updates; Zoho IDs and demo IDs don't.
+// Only Supabase UUIDs should trigger DB updates; Zoho IDs don't.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isSupabaseId = (id) => UUID_RE.test(String(id));
 
@@ -233,7 +186,7 @@ function ComposeModal({ onClose, onSend, initialTo = "", initialSubject = "", in
 
 export default function EmailClient({ initialCompose = null, initialEmailId = null }) {
   const [folder,        setFolder]        = useState("inbox");
-  const [emails,        setEmails]        = useState(DEMO_EMAILS);
+  const [emails,        setEmails]        = useState([]);
   const [selectedEmail, setSelectedEmail] = useState(null);
   const [showCompose,   setShowCompose]   = useState(!!initialCompose);
   const [composePreset, setComposePreset] = useState(initialCompose || {});
@@ -310,15 +263,15 @@ export default function EmailClient({ initialCompose = null, initialEmailId = nu
           return;
         }
       }
-      // Supabase / demo fallback
+      // Supabase fallback
       const { data, error } = await supabase
         .from("emails")
         .select("*")
         .order("sent_at", { ascending: false });
       if (!error && data?.length > 0) setEmails(data);
-      else setEmails(DEMO_EMAILS);
+      else setEmails([]);
     } catch {
-      setEmails(DEMO_EMAILS);
+      setEmails([]);
     } finally {
       setLoading(false);
     }
@@ -574,7 +527,7 @@ export default function EmailClient({ initialCompose = null, initialEmailId = nu
             ) : filteredEmails.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-32 text-[#4a5568] gap-2">
                 {folderIcons[folder]}
-                <p className="text-xs">No emails</p>
+                <p className="text-xs">No emails yet</p>
               </div>
             ) : (
               filteredEmails.map((em) => {
