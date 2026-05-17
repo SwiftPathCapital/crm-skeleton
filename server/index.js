@@ -551,7 +551,18 @@ app.post('/api/send-application', async (req, res) => {
 
   try {
     const agentId = process.env.ZOHO_AGENT_ID;
+    console.log('[send-application] agentId from env:', agentId);
     if (!agentId) return res.status(500).json({ error: 'ZOHO_AGENT_ID not configured' });
+
+    const { data: tokenRow, error: tokenError } = await supabase
+      .from('zoho_tokens')
+      .select('id, account_id, api_domain, expires_at, access_token')
+      .eq('id', agentId)
+      .maybeSingle();
+    console.log('[send-application] zoho_tokens row:', tokenRow
+      ? { ...tokenRow, access_token: tokenRow.access_token ? tokenRow.access_token.slice(0, 12) + '…' : null }
+      : null);
+    console.log('[send-application] zoho_tokens error:', tokenError);
 
     const { accessToken, accountId, apiDomain } = await getZohoToken(agentId);
     const sendRes = await axios.post(
