@@ -241,11 +241,24 @@ export default function EmailClient({ initialCompose = null, initialEmailId = nu
   const [loading,       setLoading]       = useState(true);
   const [zohoConnected, setZohoConnected] = useState(null); // null = still checking
   const [userId,        setUserId]        = useState(null);
-  const initHandled = React.useRef(false);
+  const initHandled        = React.useRef(false);
+  const messageHandlerRef  = React.useRef(null);
+  const pollIntervalRef    = React.useRef(null);
 
   // Check Zoho connection once on mount; triggers loadEmails when resolved.
   useEffect(() => {
     checkZohoStatus();
+    // On unmount: remove any pending OAuth listeners/intervals — do NOT disconnect Zoho.
+    return () => {
+      if (messageHandlerRef.current) {
+        window.removeEventListener("message", messageHandlerRef.current);
+        messageHandlerRef.current = null;
+      }
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
   }, []);
 
   // Load emails whenever connection status is known or the active folder changes.
@@ -370,14 +383,35 @@ export default function EmailClient({ initialCompose = null, initialEmailId = nu
     const handler = (e) => {
       if (e.data === "zoho-connected") {
         window.removeEventListener("message", handler);
+        messageHandlerRef.current = null;
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
         setZohoConnected(true);
       }
     };
+    messageHandlerRef.current = handler;
     window.addEventListener("message", handler);
-    // Clean up listener if user closes popup without completing OAuth
     const poll = setInterval(() => {
-      if (popup?.closed) { clearInterval(poll); window.removeEventListener("message", handler); }
+      if (popup?.closed) {
+        clearInterval(poll);
+        pollIntervalRef.current = null;
+        if (messageHandlerRef.current) {
+          window.removeEventListener("message", messageHandlerRef.current);
+          messageHandlerRef.current = null;
+        }
+      }
     }, 1000);
+    pollIntervalRef.current = poll;
+  }
+
+  async function disconnectZoho() {
+    if (!userId) return;
+    try {
+      await supabase.from("zoho_tokens").delete().eq("id", userId);
+    } catch { /* best-effort */ }
+    setZohoConnected(false);
   }
 
   async function toggleStar(e, targetId) {
@@ -440,9 +474,17 @@ export default function EmailClient({ initialCompose = null, initialEmailId = nu
           {zohoConnected === null ? (
             <div className="w-5 h-5 border-2 border-[#c9a84c] border-t-transparent rounded-full animate-spin" />
           ) : zohoConnected ? (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-              <div className="w-2 h-2 rounded-full bg-emerald-400" />
-              <span className="text-emerald-400 text-xs font-medium">Zoho Connected</span>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                <div className="w-2 h-2 rounded-full bg-emerald-400" />
+                <span className="text-emerald-400 text-xs font-medium">Zoho Connected</span>
+              </div>
+              <button
+                onClick={disconnectZoho}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium text-[#8892a4] hover:text-red-400 hover:bg-red-500/10 border border-[#1e2130] transition-all"
+              >
+                Disconnect Zoho
+              </button>
             </div>
           ) : (
             <button
