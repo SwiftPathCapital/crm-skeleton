@@ -11,6 +11,7 @@ import EmailClient from "./pages/EmailClient";
 import SoftPhone from "./pages/SoftPhone";
 import CalendarPage from "./pages/CalendarPage";
 import NewApplication from "./pages/NewApplication";
+import Settings from "./pages/Settings";
 import Login from "./pages/Login";
 import { supabase } from "./lib/supabaseClient";
 import { AppProvider, useApp } from "./context/AppContext";
@@ -161,6 +162,8 @@ function AppShell() {
         return <CalendarPage agent={agent} />;
       case "new-application":
         return <NewApplication />;
+      case "settings":
+        return <Settings />;
       default:
         return <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} onOpenEmailClient={openEmailClient} />;
     }
