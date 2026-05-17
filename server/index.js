@@ -188,11 +188,18 @@ app.post('/webhook/telnyx', async (req, res) => {
 
 // Fetch token from zoho_tokens table, refreshing if within 5 min of expiry.
 async function getZohoToken(agentId) {
+  console.log('[getZohoToken] looking up agentId:', agentId, '(type:', typeof agentId, ')');
+  console.log('[getZohoToken] query: SELECT access_token,refresh_token,expires_at,account_id,calendar_uid,api_domain FROM zoho_tokens WHERE id =', agentId);
+
   const { data: row, error } = await supabase
     .from('zoho_tokens')
     .select('access_token, refresh_token, expires_at, account_id, calendar_uid, api_domain')
     .eq('id', agentId)
     .maybeSingle();
+
+  console.log('[getZohoToken] raw result — error:', error, '| row:', row
+    ? { ...row, access_token: row.access_token ? row.access_token.slice(0, 12) + '…' : null }
+    : null);
 
   if (error || !row?.access_token) {
     const err = new Error('Zoho not connected. Reconnect via /auth/zoho?agentId=' + agentId);
