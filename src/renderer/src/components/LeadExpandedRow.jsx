@@ -1,7 +1,6 @@
 // src/components/LeadExpandedRow.jsx
 import React, { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { useApp } from "../context/AppContext";
 
 function Field({ label, fieldKey, value, onChange, type = "text", fullWidth = false }) {
   return (
@@ -111,169 +110,6 @@ function WebFields({ data, onChange }) {
       <Field label="Lead Type" fieldKey="lead_type_label" value={data.lead_type_label} onChange={onChange} />
       <Field label="Date Sold" fieldKey="date_sold" value={data.date_sold} onChange={onChange} />
     </>
-  );
-}
-
-// ── APPLICATION FORM HELPERS ─────────────────────────────────────────────────
-function AppField({ label, value, onChange, type = "text", placeholder = "", required = false, fullWidth = false }) {
-  return (
-    <div className={fullWidth ? "col-span-2" : ""}>
-      <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider block mb-1.5">
-        {label}{required && <span className="text-red-400 ml-0.5">*</span>}
-      </label>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder || "—"}
-        required={required}
-        className="w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a84c] transition-colors placeholder-[#4a5568]"
-      />
-    </div>
-  );
-}
-
-function ApplicationModal({ lead, onClose }) {
-  const { userId } = useApp();
-  const ownerName = [lead.first_name, lead.last_name].filter(Boolean).join(" ") || lead.name || "";
-  const businessAddress = [lead.address, lead.city, lead.zip].filter(Boolean).join(", ");
-  const [form, setForm] = useState({
-    businessName: lead.company || "",
-    dba: "",
-    businessAddress,
-    businessStartDate: "",
-    ein: "",
-    ownerName,
-    ownerSS: "",
-    ownerDOB: "",
-    ownerAddress: "",
-    printName: "",
-  });
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const [error, setError] = useState(null);
-
-  const set = (key, val) => setForm((p) => ({ ...p, [key]: val }));
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/send-application", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, agentId: userId }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Server error ${res.status}`);
-      }
-      setSubmitted(true);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div className="bg-[#0d1117] border border-[#1e2130] rounded-2xl w-full max-w-2xl shadow-2xl max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#1e2130] flex-shrink-0">
-          <div>
-            <h2 className="text-white font-bold text-lg">Create Application</h2>
-            <p className="text-[#4a5568] text-xs mt-0.5">Sends to submissions@swiftpathtocapital.com</p>
-          </div>
-          <button onClick={onClose} className="text-[#4a5568] hover:text-white transition-colors">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        {submitted ? (
-          <div className="flex flex-col items-center justify-center py-16 px-6">
-            <div className="w-14 h-14 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mb-4">
-              <svg className="w-7 h-7 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-            <p className="text-white font-semibold text-lg">Application Sent!</p>
-            <p className="text-[#4a5568] text-sm mt-1">Submitted to submissions@swiftpathtocapital.com</p>
-            <button
-              onClick={onClose}
-              className="mt-6 px-6 py-2 bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] text-sm font-semibold rounded-lg hover:opacity-90"
-            >
-              Close
-            </button>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
-            <div className="overflow-y-auto flex-1 px-6 py-5 space-y-6">
-              <div>
-                <p className="text-[#c9a84c] text-xs font-bold uppercase tracking-widest mb-3">Business Information</p>
-                <div className="grid grid-cols-2 gap-4">
-                  <AppField label="Business Name" value={form.businessName} onChange={(v) => set("businessName", v)} required />
-                  <AppField label="DBA" value={form.dba} onChange={(v) => set("dba", v)} />
-                  <AppField label="Business Address" value={form.businessAddress} onChange={(v) => set("businessAddress", v)} fullWidth />
-                  <AppField label="Business Start Date" value={form.businessStartDate} onChange={(v) => set("businessStartDate", v)} type="date" />
-                  <AppField label="EIN" value={form.ein} onChange={(v) => set("ein", v)} placeholder="Optional" />
-                </div>
-              </div>
-              <div>
-                <p className="text-[#c9a84c] text-xs font-bold uppercase tracking-widest mb-3">Owner Information</p>
-                <div className="grid grid-cols-2 gap-4">
-                  <AppField label="Owner Name" value={form.ownerName} onChange={(v) => set("ownerName", v)} required />
-                  <AppField label="Owner SS#" value={form.ownerSS} onChange={(v) => set("ownerSS", v)} placeholder="Optional" />
-                  <AppField label="Date of Birth" value={form.ownerDOB} onChange={(v) => set("ownerDOB", v)} type="date" />
-                  <AppField label="Owner Address" value={form.ownerAddress} onChange={(v) => set("ownerAddress", v)} />
-                </div>
-              </div>
-              <div>
-                <p className="text-[#c9a84c] text-xs font-bold uppercase tracking-widest mb-3">Signature</p>
-                <div className="grid grid-cols-2 gap-4">
-                  <AppField label="Print Name" value={form.printName} onChange={(v) => set("printName", v)} required />
-                </div>
-              </div>
-
-              {error && (
-                <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3">
-                  <p className="text-red-400 text-sm">{error}</p>
-                </div>
-              )}
-            </div>
-
-            <div className="px-6 py-4 border-t border-[#1e2130] flex gap-3 flex-shrink-0">
-              <button
-                type="submit"
-                disabled={submitting}
-                className="flex items-center gap-2 px-6 py-2 bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] text-sm font-semibold rounded-lg hover:opacity-90 disabled:opacity-50 transition-all"
-              >
-                {submitting ? (
-                  <span className="w-4 h-4 border-2 border-[#080b10] border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                  </svg>
-                )}
-                {submitting ? "Sending…" : "Send Application"}
-              </button>
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-5 py-2 bg-[#1e2130] text-[#8892a4] text-sm rounded-lg hover:text-white transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
-    </div>
   );
 }
 
@@ -540,8 +376,6 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
   const [formData, setFormData] = useState({ ...lead });
   const [saved, setSaved] = useState(false);
   const [activeTab, setActiveTab] = useState("details");
-  const [showAppModal, setShowAppModal] = useState(false);
-
   function handleChange(key, value) {
     setSaved(false);
     setFormData((prev) => ({ ...prev, [key]: value }));
@@ -574,15 +408,17 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
           <span className="text-[#4a5568] text-xs">ID #{lead.id}</span>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowAppModal(true)}
+          <a
+            href="https://www.swiftpathcapital.net/agent-tools"
+            target="_blank"
+            rel="noreferrer"
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] hover:opacity-90 transition-all"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
             Create Application
-          </button>
+          </a>
           {activeTab === "details" && (
             <button
               onClick={handleSave}
@@ -675,9 +511,6 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
         </div>
       )}
 
-      {showAppModal && (
-        <ApplicationModal lead={lead} onClose={() => setShowAppModal(false)} />
-      )}
     </div>
   );
 }
