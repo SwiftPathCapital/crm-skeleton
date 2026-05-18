@@ -128,6 +128,9 @@ export default function SoftPhone({ agent, visible, onClose }) {
         setCallState("active");
         setCallSeconds(0);
         timerRef.current = setInterval(() => setCallSeconds(s => s + 1), 1000);
+        console.log("[Telnyx] call object keys:", Object.keys(notification.call));
+        console.log("[Telnyx] remoteStream:", notification.call.remoteStream);
+        console.log("[Telnyx] localStream:", notification.call.localStream);
         const remoteStream = notification.call.remoteStream;
         if (remoteStream) {
           const audio = document.getElementById('remote-audio') || document.createElement('audio');
