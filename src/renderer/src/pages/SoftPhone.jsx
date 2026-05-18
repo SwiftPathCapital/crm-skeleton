@@ -128,24 +128,14 @@ export default function SoftPhone({ agent, visible, onClose }) {
         setCallState("active");
         setCallSeconds(0);
         timerRef.current = setInterval(() => setCallSeconds(s => s + 1), 1000);
-        // Attach remote audio — try remoteStream first, fall back to peerconnection ontrack
-        const attachAudio = (stream) => {
-          if (remoteAudioRef.current && stream) {
-            remoteAudioRef.current.srcObject = stream;
-            remoteAudioRef.current.play().catch(() => {});
-          }
-        };
-        if (call.remoteStream) {
-          attachAudio(call.remoteStream);
-        } else {
-          try {
-            const pc = call.peer?.instance;
-            if (pc) {
-              pc.ontrack = (e) => { if (e.streams?.[0]) attachAudio(e.streams[0]); };
-            }
-          } catch (_) {}
-          // Fallback: poll once after 800 ms in case stream arrives slightly late
-          setTimeout(() => { if (call.remoteStream) attachAudio(call.remoteStream); }, 800);
+        const remoteStream = notification.call.remoteStream;
+        if (remoteStream) {
+          const audio = document.getElementById('remote-audio') || document.createElement('audio');
+          audio.id = 'remote-audio';
+          audio.srcObject = remoteStream;
+          audio.autoplay = true;
+          document.body.appendChild(audio);
+          audio.play().catch(e => console.warn('audio play failed:', e));
         }
       } else if (state === "destroy" || state === "hangup" || state === "done") {
         clearInterval(timerRef.current);
