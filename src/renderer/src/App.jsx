@@ -16,6 +16,19 @@ import Login from "./pages/Login";
 import { supabase } from "./lib/supabaseClient";
 import { AppProvider, useApp } from "./context/AppContext";
 
+// Keeps a page mounted but hidden when inactive so stateful components
+// (softphone, email session, VICIdial) survive navigation.
+function PageSlot({ active, padded, children }) {
+  return (
+    <div
+      className={`absolute inset-0 overflow-auto${padded ? " p-6" : ""}`}
+      style={{ display: active ? "block" : "none" }}
+    >
+      {children}
+    </div>
+  );
+}
+
 // ── Auth gate ─────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -125,7 +138,6 @@ function AppShell() {
     setActiveView("email-client");
   }
 
-  // Wait for the agent profile to load from context before rendering the shell.
   if (!agent) {
     return (
       <div className="min-h-screen bg-[#080b10] flex items-center justify-center">
@@ -134,40 +146,7 @@ function AppShell() {
     );
   }
 
-  function renderView() {
-    if (leadsLoading) {
-      return (
-        <div className="flex items-center justify-center h-full">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#c9a84c]" />
-          <span className="ml-3 text-[#4a5568]">Loading your leads...</span>
-        </div>
-      );
-    }
-    switch (activeView) {
-      case "my-leads":
-        return <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} onOpenEmailClient={openEmailClient} />;
-      case "scripts":
-        return <ScriptsPage agent={agent} />;
-      case "email-client":
-        return <EmailClient {...emailClientProps} />;
-      case "admin-dashboard":
-        return agent.role === "admin" ? <AdminDashboard /> : <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} onOpenEmailClient={openEmailClient} />;
-      case "agent-management":
-        return agent.role === "admin" ? <AgentManagement /> : <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} onOpenEmailClient={openEmailClient} />;
-      case "deal-pipeline":
-        return <DealPipeline agent={agent} />;
-      case "clients":
-        return <Clients agent={agent} />;
-      case "calendar":
-        return <CalendarPage agent={agent} />;
-      case "new-application":
-        return <NewApplication />;
-      case "settings":
-        return <Settings />;
-      default:
-        return <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} onOpenEmailClient={openEmailClient} />;
-    }
-  }
+  const isAdmin = agent.role === "admin";
 
   return (
     <div className="flex h-screen bg-[#080b10] text-white overflow-hidden font-sans">
@@ -181,18 +160,64 @@ function AppShell() {
         }}
         agent={agent}
       />
-      {/* Dialer iframe stays mounted at all times so VICIdial session survives navigation */}
-      <iframe
-        src="https://dialer.swiftpathcapital.net/agc/vicidial.php"
-        title="VICIdial"
-        style={{ display: activeView === "dialer" ? "block" : "none", flex: 1, border: "none" }}
-      />
+
       <SoftPhone agent={agent} visible={softphoneOpen} onClose={() => setSoftphoneOpen(false)} />
-      {activeView !== "dialer" && (
-        <main className="flex-1 overflow-auto p-6 bg-gradient-to-br from-[#080b10] to-[#0f1117]">
-          {renderView()}
-        </main>
-      )}
+
+      {/* All page views are always mounted; only the active one is visible.
+          This keeps email sessions, softphone state, and other long-lived
+          connections alive across navigation. */}
+      <main className="flex-1 overflow-hidden bg-gradient-to-br from-[#080b10] to-[#0f1117] relative">
+        <PageSlot active={activeView === "my-leads"} padded>
+          {leadsLoading && leads.length === 0 ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#c9a84c]" />
+              <span className="ml-3 text-[#4a5568]">Loading your leads...</span>
+            </div>
+          ) : (
+            <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} onOpenEmailClient={openEmailClient} />
+          )}
+        </PageSlot>
+
+        <PageSlot active={activeView === "email-client"} padded>
+          <EmailClient {...emailClientProps} />
+        </PageSlot>
+
+        <PageSlot active={activeView === "scripts"} padded>
+          <ScriptsPage agent={agent} />
+        </PageSlot>
+
+        {isAdmin && (
+          <>
+            <PageSlot active={activeView === "admin-dashboard"} padded>
+              <AdminDashboard />
+            </PageSlot>
+            <PageSlot active={activeView === "agent-management"} padded>
+              <AgentManagement />
+            </PageSlot>
+          </>
+        )}
+
+        <PageSlot active={activeView === "deal-pipeline"} padded>
+          <DealPipeline agent={agent} />
+        </PageSlot>
+
+        <PageSlot active={activeView === "clients"} padded>
+          <Clients agent={agent} />
+        </PageSlot>
+
+        <PageSlot active={activeView === "calendar"} padded>
+          <CalendarPage agent={agent} />
+        </PageSlot>
+
+        {/* No padding — iframe fills the slot edge-to-edge */}
+        <PageSlot active={activeView === "new-application"}>
+          <NewApplication />
+        </PageSlot>
+
+        <PageSlot active={activeView === "settings"} padded>
+          <Settings />
+        </PageSlot>
+      </main>
     </div>
   );
 }
