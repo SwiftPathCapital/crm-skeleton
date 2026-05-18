@@ -83,7 +83,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
   // ── Telnyx WebRTC state ─────────────────────────────────────────────────────
   const clientRef        = useRef(null);
   const callRef          = useRef(null);
-  const remoteAudioRef   = useRef(null);
+  const audioRef         = useRef(null);
   const timerRef         = useRef(null);
   const callStartRef     = useRef(null);  // Date when call went active
   const callDestRef      = useRef("");    // E164 destination dialled
@@ -132,10 +132,9 @@ export default function SoftPhone({ agent, visible, onClose }) {
         console.log("[Telnyx] remoteStream:", notification.call.remoteStream);
         console.log("[Telnyx] localStream:", notification.call.localStream);
         const remoteStream = notification.call.remoteStream;
-        const audioEl = document.getElementById('remote-audio');
-        if (audioEl && remoteStream) {
-          audioEl.srcObject = remoteStream;
-          audioEl.play().catch(console.warn);
+        if (audioRef.current && remoteStream) {
+          audioRef.current.srcObject = remoteStream;
+          audioRef.current.play().catch(console.warn);
         }
       } else if (state === "destroy" || state === "hangup" || state === "done") {
         clearInterval(timerRef.current);
@@ -333,7 +332,9 @@ export default function SoftPhone({ agent, visible, onClose }) {
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div style={{
+    <div
+      onClick={() => { if (audioRef.current) audioRef.current.play().catch(() => {}); }}
+      style={{
       position: "fixed",
       left: pos.x, top: pos.y,
       width: W, height: H,
@@ -710,7 +711,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
       </div>
 
       {/* Hidden audio for remote stream */}
-      <audio id="remote-audio" autoPlay style={{ display:"none" }} />
+      <audio ref={audioRef} id="remote-audio" autoPlay playsInline style={{ display:"none" }} />
 
       {/* ── INCOMING CALL BANNER ────────────────────────────────────────────────── */}
       {callState === "ringing_in" && (
