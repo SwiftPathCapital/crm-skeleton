@@ -99,6 +99,8 @@ export default function SoftPhone({ agent, visible, onClose }) {
     const client = new TelnyxRTC({
       login:    agent.sip_username,
       password: agent.sip_password,
+      audio:    true,
+      video:    false,
     });
 
     client.on("telnyx.ready", () => setSipStatus("registered"));
@@ -179,7 +181,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
     };
   }, [agent?.sip_username, agent?.sip_password]);
 
-  function makeCall() {
+  async function makeCall() {
     if (!dialInput.trim()) return;
     if (!clientRef.current || sipStatus !== "registered") {
       alert("Not connected to Telnyx. Check credentials.");
@@ -192,11 +194,19 @@ export default function SoftPhone({ agent, visible, onClose }) {
     if (!digits.startsWith("1")) digits = "1" + digits;
     const dest = "+" + digits;
 
+    let localStream;
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    } catch (err) {
+      console.warn("[makeCall] getUserMedia failed:", err);
+    }
+
     callDestRef.current = dest;
     clientRef.current.newCall({
       destinationNumber: dest,
       callerNumber:      agent?.did || "+17869460772",
       callerIdNumber:    agent?.did || "+17869460772",
+      ...(localStream ? { localStream } : {}),
     });
   }
 
