@@ -132,13 +132,10 @@ export default function SoftPhone({ agent, visible, onClose }) {
         console.log("[Telnyx] remoteStream:", notification.call.remoteStream);
         console.log("[Telnyx] localStream:", notification.call.localStream);
         const remoteStream = notification.call.remoteStream;
-        if (remoteStream) {
-          const audio = document.getElementById('remote-audio') || document.createElement('audio');
-          audio.id = 'remote-audio';
-          audio.srcObject = remoteStream;
-          audio.autoplay = true;
-          document.body.appendChild(audio);
-          audio.play().catch(e => console.warn('audio play failed:', e));
+        const audioEl = document.getElementById('remote-audio');
+        if (audioEl && remoteStream) {
+          audioEl.srcObject = remoteStream;
+          audioEl.play().catch(console.warn);
         }
       } else if (state === "destroy" || state === "hangup" || state === "done") {
         clearInterval(timerRef.current);
@@ -713,7 +710,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
       </div>
 
       {/* Hidden audio for remote stream */}
-      <audio ref={remoteAudioRef} autoPlay style={{ display:"none" }} />
+      <audio id="remote-audio" autoPlay style={{ display:"none" }} />
 
       {/* ── INCOMING CALL BANNER ────────────────────────────────────────────────── */}
       {callState === "ringing_in" && (
