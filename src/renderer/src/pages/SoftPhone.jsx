@@ -127,15 +127,6 @@ export default function SoftPhone({ agent, visible, onClose }) {
         setCallState("active");
         setCallSeconds(0);
         timerRef.current = setInterval(() => setCallSeconds(s => s + 1), 1000);
-        console.log("[Telnyx] call object keys:", Object.keys(notification.call));
-        console.log("[Telnyx] remoteStream:", notification.call.remoteStream);
-        console.log("[Telnyx] localStream (ref):", localStreamRef.current);
-        if (localStreamRef.current) {
-          localStreamRef.current.getAudioTracks().forEach(track => {
-            console.log("[audio track]", track.label, "enabled:", track.enabled, "muted:", track.muted, "readyState:", track.readyState);
-            track.enabled = true;
-          });
-        }
         const remoteStream = notification.call.remoteStream;
         if (audioRef.current && remoteStream) {
           audioRef.current.srcObject = remoteStream;
@@ -143,11 +134,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
         }
       } else if (state === "destroy" || state === "hangup" || state === "done") {
         clearInterval(timerRef.current);
-        // Release microphone
-        if (localStreamRef.current) {
-          localStreamRef.current.getTracks().forEach(t => t.stop());
-          localStreamRef.current = null;
-        }
+        localStreamRef.current = null;
         // Save call record if the call was ever active
         if (callStartRef.current) {
           const duration = Math.round((Date.now() - callStartRef.current.getTime()) / 1000);
@@ -180,19 +167,18 @@ export default function SoftPhone({ agent, visible, onClose }) {
     };
   }, [agent?.sip_username, agent?.sip_password]);
 
-  async function getRealMicStream() {
+  async function getRealMicConstraints() {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const loopbackTerms = ['stereo mix', 'what u hear', 'wave out', 'loopback', 'virtual'];
     const realMics = devices.filter(d =>
       d.kind === 'audioinput' &&
       !loopbackTerms.some(t => d.label.toLowerCase().includes(t))
     );
-    const constraints = realMics.length > 0
-      ? { audio: { deviceId: { exact: realMics[0].deviceId } }, video: false }
-      : { audio: true, video: false };
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-    console.log("[mic] using device:", stream.getAudioTracks()[0]?.label);
-    return stream;
+    if (realMics.length > 0) {
+      console.log("[mic] will use device:", realMics[0].label);
+      return { deviceId: { exact: realMics[0].deviceId } };
+    }
+    return true;
   }
 
   async function makeCall() {
@@ -208,11 +194,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
     if (!digits.startsWith("1")) digits = "1" + digits;
     const dest = "+" + digits;
 
-    try {
-      localStreamRef.current = await getRealMicStream();
-    } catch (err) {
-      console.warn("[makeCall] getUserMedia failed:", err);
-    }
+    const audioConstraints = await getRealMicConstraints();
 
     callDestRef.current = dest;
     clientRef.current.newCall({
@@ -220,20 +202,15 @@ export default function SoftPhone({ agent, visible, onClose }) {
       callerNumber:       agent?.did || "+17869460772",
       callerIdNumber:     agent?.did || "+17869460772",
       debug:              true,
-      audio:              true,
+      audio:              audioConstraints,
       video:              false,
-      ...(localStreamRef.current ? { localStream: localStreamRef.current } : {}),
     });
   }
 
   async function answerCall() {
+    const audioConstraints = await getRealMicConstraints();
     try {
-      localStreamRef.current = await getRealMicStream();
-    } catch (err) {
-      console.error("[answerCall] getUserMedia failed — check mic permission:", err);
-    }
-    try {
-      callRef.current?.answer();
+      callRef.current?.answer({ audio: audioConstraints, video: false });
     } catch (err) {
       console.error("[answerCall] answer() failed:", err);
     }
@@ -243,11 +220,6 @@ export default function SoftPhone({ agent, visible, onClose }) {
 
   function hangUp() {
     clearInterval(timerRef.current);
-    // Release microphone
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(t => t.stop());
-      localStreamRef.current = null;
-    }
     // Save call record before clearing refs
     if (callStartRef.current) {
       const duration = Math.round((Date.now() - callStartRef.current.getTime()) / 1000);
