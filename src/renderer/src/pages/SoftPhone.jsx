@@ -180,6 +180,21 @@ export default function SoftPhone({ agent, visible, onClose }) {
     };
   }, [agent?.sip_username, agent?.sip_password]);
 
+  async function getRealMicStream() {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const loopbackTerms = ['stereo mix', 'what u hear', 'wave out', 'loopback', 'virtual'];
+    const realMics = devices.filter(d =>
+      d.kind === 'audioinput' &&
+      !loopbackTerms.some(t => d.label.toLowerCase().includes(t))
+    );
+    const constraints = realMics.length > 0
+      ? { audio: { deviceId: { exact: realMics[0].deviceId } }, video: false }
+      : { audio: true, video: false };
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    console.log("[mic] using device:", stream.getAudioTracks()[0]?.label);
+    return stream;
+  }
+
   async function makeCall() {
     if (!dialInput.trim()) return;
     if (!clientRef.current || sipStatus !== "registered") {
@@ -194,8 +209,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
     const dest = "+" + digits;
 
     try {
-      localStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      console.log("[makeCall] mic stream tracks:", localStreamRef.current.getAudioTracks().map(t => t.label));
+      localStreamRef.current = await getRealMicStream();
     } catch (err) {
       console.warn("[makeCall] getUserMedia failed:", err);
     }
@@ -214,8 +228,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
 
   async function answerCall() {
     try {
-      // Pre-capture mic so it's ready when the SDK negotiates media
-      localStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      localStreamRef.current = await getRealMicStream();
     } catch (err) {
       console.error("[answerCall] getUserMedia failed — check mic permission:", err);
     }
