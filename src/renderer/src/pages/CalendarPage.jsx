@@ -53,31 +53,6 @@ function getWeekDays(start) {
   });
 }
 
-// ── Demo data ─────────────────────────────────────────────────────────────────
-function makeDemoEvents() {
-  const n=new Date(), y=n.getFullYear(), m=n.getMonth(), d=n.getDate();
-  return [
-    { id:"de1", title:"Follow up — Marcus Johnson",  description:"Review loan documents",   start_time:new Date(y,m,d,10,0).toISOString(),   end_time:new Date(y,m,d,10,30).toISOString(),  color:"#c9a84c" },
-    { id:"de2", title:"Team standup",                description:"",                        start_time:new Date(y,m,d,9,0).toISOString(),    end_time:new Date(y,m,d,9,15).toISOString(),   color:"#3b82f6" },
-    { id:"de3", title:"Call — Sarah Williams",       description:"Interest rate options",   start_time:new Date(y,m,d+1,14,0).toISOString(), end_time:new Date(y,m,d+1,14,30).toISOString(),color:"#22c55e" },
-    { id:"de4", title:"Pipeline review",             description:"Monthly review",          start_time:new Date(y,m,d+2,11,0).toISOString(), end_time:new Date(y,m,d+2,12,0).toISOString(),  color:"#8b5cf6" },
-    { id:"de5", title:"Follow up — Derek Cole",      description:"",                        start_time:new Date(y,m,d+3,15,0).toISOString(), end_time:new Date(y,m,d+3,15,30).toISOString(),color:"#c9a84c" },
-    { id:"de6", title:"Loan closing — Priya Mehta",  description:"Final signing",           start_time:new Date(y,m,d+5,13,0).toISOString(), end_time:new Date(y,m,d+5,14,0).toISOString(),  color:"#ef4444" },
-  ];
-}
-function makeDemoAgentEvents() {
-  const n=new Date(), y=n.getFullYear(), m=n.getMonth(), d=n.getDate();
-  return [
-    { id:"dae1", title:"Client call — Rivera",     agent_id:"ag1", agent_name:"Mike Torres",  start_time:new Date(y,m,d,11,0).toISOString(),   end_time:new Date(y,m,d,11,30).toISOString(),  color:"#3b82f6" },
-    { id:"dae2", title:"Follow up — Chen",          agent_id:"ag1", agent_name:"Mike Torres",  start_time:new Date(y,m,d,14,0).toISOString(),   end_time:new Date(y,m,d,14,30).toISOString(),  color:"#3b82f6" },
-    { id:"dae3", title:"Loan review — Patel",       agent_id:"ag2", agent_name:"Lisa Park",    start_time:new Date(y,m,d,10,30).toISOString(),  end_time:new Date(y,m,d,11,0).toISOString(),   color:"#22c55e" },
-    { id:"dae4", title:"New lead call",             agent_id:"ag2", agent_name:"Lisa Park",    start_time:new Date(y,m,d+1,9,0).toISOString(),  end_time:new Date(y,m,d+1,9,30).toISOString(), color:"#22c55e" },
-    { id:"dae5", title:"Document signing — Adams",  agent_id:"ag3", agent_name:"James Wright", start_time:new Date(y,m,d+1,13,0).toISOString(), end_time:new Date(y,m,d+1,14,0).toISOString(), color:"#8b5cf6" },
-    { id:"dae6", title:"Follow up — Morrison",      agent_id:"ag3", agent_name:"James Wright", start_time:new Date(y,m,d+2,15,0).toISOString(), end_time:new Date(y,m,d+2,15,30).toISOString(),color:"#8b5cf6" },
-    { id:"dae7", title:"Credit review — Torres",    agent_id:"ag4", agent_name:"Amy Chen",     start_time:new Date(y,m,d+2,10,0).toISOString(), end_time:new Date(y,m,d+2,10,30).toISOString(),color:"#ef4444" },
-    { id:"dae8", title:"Closing call — Williams",   agent_id:"ag4", agent_name:"Amy Chen",     start_time:new Date(y,m,d+3,11,0).toISOString(), end_time:new Date(y,m,d+3,11,30).toISOString(),color:"#ef4444" },
-  ];
-}
 
 const BLANK_FORM = { title:"", description:"", date:todayStr(), startTime:"09:00", endTime:"09:30", color:"#c9a84c" };
 const card = { background:"#0d1117", borderRadius:12, border:"1px solid #1e2130" };
@@ -92,7 +67,6 @@ export default function CalendarPage({ agent }) {
   const [month, setMonth]           = useState(now.getMonth());
   const [weekStart, setWeekStart]   = useState(getWeekStart(now));
   const [events, setEvents]         = useState([]);
-  const [usingDemo, setUsingDemo]   = useState(false);
   const [agentEvts, setAgentEvts]   = useState([]); // all-agents events (admin)
   const [selectedDay, setSelectedDay]     = useState(null);
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -110,16 +84,10 @@ export default function CalendarPage({ agent }) {
   useEffect(() => { loadEvents(); }, []);
 
   async function loadEvents() {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("calendar_events").select("*").order("start_time", { ascending:true });
-    if (!error && data?.length) {
-      setEvents(data);
-      if (isAdmin) loadAgentEvents();
-    } else {
-      setEvents(makeDemoEvents());
-      setUsingDemo(true);
-      if (isAdmin) setAgentEvts(makeDemoAgentEvents());
-    }
+    setEvents(data || []);
+    if (isAdmin) loadAgentEvents();
   }
 
   async function loadAgentEvents() {
@@ -172,23 +140,16 @@ export default function CalendarPage({ agent }) {
     const startIso = new Date(`${form.date}T${form.startTime}`).toISOString();
     const endIso   = form.endTime ? new Date(`${form.date}T${form.endTime}`).toISOString() : null;
     const payload  = { title:form.title.trim(), description:form.description.trim()||null, start_time:startIso, end_time:endIso, color:form.color, agent_id:agent?.id||null };
-    if (usingDemo) {
-      const id = selectedEvent?.id || `de-${Date.now()}`;
-      setEvents(prev => selectedEvent ? prev.map(e=>e.id===selectedEvent.id?{...e,...payload}:e) : [...prev,{id,...payload}]);
-    } else {
-      if (selectedEvent && !selectedEvent.id.startsWith("de"))
-        await supabase.from("calendar_events").update(payload).eq("id",selectedEvent.id);
-      else
-        await supabase.from("calendar_events").insert(payload);
-      await loadEvents();
-    }
+    if (selectedEvent)
+      await supabase.from("calendar_events").update(payload).eq("id",selectedEvent.id);
+    else
+      await supabase.from("calendar_events").insert(payload);
+    await loadEvents();
     setSaving(false); setShowModal(false);
   }
   async function deleteEvent(ev) {
-    if (!usingDemo && !ev.id.startsWith("de")) {
-      await supabase.from("calendar_events").delete().eq("id",ev.id);
-      await loadEvents();
-    } else { setEvents(prev=>prev.filter(e=>e.id!==ev.id)); }
+    await supabase.from("calendar_events").delete().eq("id",ev.id);
+    await loadEvents();
     setShowModal(false);
   }
 
@@ -197,18 +158,6 @@ export default function CalendarPage({ agent }) {
     setApptDay(dayStr);
     setApptGroups([]);
     setApptLoading(true);
-
-    if (usingDemo) {
-      const dayEvts = makeDemoAgentEvents().filter(ev => dateKey(new Date(ev.start_time)) === dayStr);
-      const grouped = {};
-      dayEvts.forEach(ev => {
-        if (!grouped[ev.agent_id]) grouped[ev.agent_id] = { name:ev.agent_name, events:[] };
-        grouped[ev.agent_id].events.push(ev);
-      });
-      setApptGroups(Object.values(grouped));
-      setApptLoading(false);
-      return;
-    }
 
     const dayStart = new Date(dayStr+"T00:00:00").toISOString();
     const dayEnd   = new Date(dayStr+"T23:59:59").toISOString();
@@ -261,7 +210,6 @@ export default function CalendarPage({ agent }) {
               </button>
             ))}
           </div>
-          {usingDemo && <span style={{ fontSize:11, color:"#4a5568", background:"#1e2130", borderRadius:6, padding:"3px 10px", border:"1px solid #2a3040" }}>Demo — run calendar_events.sql to persist</span>}
         </div>
         <button onClick={() => openAddModal(today)} style={{ background:"linear-gradient(135deg,#c9a84c,#e8c96d)", border:"none", borderRadius:9, padding:"9px 18px", fontSize:13, fontWeight:700, color:"#080b10", cursor:"pointer", display:"flex", alignItems:"center", gap:7 }}>
           <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
