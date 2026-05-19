@@ -149,6 +149,131 @@ function DocumentsSection() {
   );
 }
 
+// ── HELPERS ──────────────────────────────────────────────────────────────────
+function initials(name) {
+  return name
+    ? name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
+    : "?";
+}
+
+// ── NOTES TAB ─────────────────────────────────────────────────────────────────
+function NotesTab({ lead }) {
+  const { agent } = useApp();
+  const [comments, setComments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [text, setText] = useState("");
+  const [posting, setPosting] = useState(false);
+
+  useEffect(() => {
+    fetchComments();
+  }, [lead.id]);
+
+  async function fetchComments() {
+    setLoading(true);
+    const { data } = await supabase
+      .from("lead_comments")
+      .select("*")
+      .eq("lead_id", lead.id)
+      .order("created_at", { ascending: true });
+    setComments(data || []);
+    setLoading(false);
+  }
+
+  async function handlePost() {
+    if (!text.trim()) return;
+    setPosting(true);
+    const { error } = await supabase.from("lead_comments").insert({
+      lead_id: lead.id,
+      agent_id: agent?.id ?? null,
+      agent_name: agent?.full_name || "Unknown",
+      content: text.trim(),
+    });
+    if (!error) {
+      setText("");
+      fetchComments();
+    }
+    setPosting(false);
+  }
+
+  function formatDate(dateStr) {
+    if (!dateStr) return "";
+    const d = new Date(dateStr);
+    return (
+      d.toLocaleDateString([], { month: "short", day: "numeric" }) +
+      " at " +
+      d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    );
+  }
+
+  return (
+    <div className="col-span-2 flex flex-col gap-3">
+      {loading ? (
+        <div className="flex items-center justify-center py-8">
+          <div className="w-5 h-5 border-2 border-[#c9a84c] border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : comments.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-10 text-[#4a5568]">
+          <svg className="w-10 h-10 mb-2 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+          </svg>
+          <p className="text-sm">No notes yet</p>
+          <p className="text-xs mt-1 opacity-60">Add the first note on this lead</p>
+        </div>
+      ) : (
+        <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+          {comments.map((comment) => (
+            <div key={comment.id} className="flex gap-3">
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#c9a84c] to-[#e8c96d] flex items-center justify-center text-[#080b10] text-xs font-bold flex-shrink-0 mt-0.5">
+                {initials(comment.agent_name)}
+              </div>
+              <div className="flex-1 bg-[#0f1117] border border-[#1e2130] rounded-xl px-4 py-3">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-white text-xs font-semibold">{comment.agent_name}</span>
+                  <span className="text-[#4a5568] text-xs">{formatDate(comment.created_at)}</span>
+                </div>
+                <p className="text-[#8892a4] text-sm leading-relaxed whitespace-pre-wrap">{comment.content}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Compose */}
+      <div className="flex gap-3 items-start">
+        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#c9a84c] to-[#e8c96d] flex items-center justify-center text-[#080b10] text-xs font-bold flex-shrink-0 mt-0.5">
+          {initials(agent?.full_name)}
+        </div>
+        <div className="flex-1 bg-[#0f1117] border border-[#1e2130] rounded-xl overflow-hidden focus-within:border-[#c9a84c]/50 transition-colors">
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) handlePost();
+            }}
+            placeholder="Add a note…"
+            rows={3}
+            className="w-full bg-transparent px-4 py-3 text-sm text-white placeholder-[#4a5568] outline-none resize-none"
+          />
+          <div className="px-3 py-2 border-t border-[#1e2130] flex items-center justify-between">
+            <span className="text-[#4a5568] text-xs">Ctrl + Enter to post</span>
+            <button
+              onClick={handlePost}
+              disabled={!text.trim() || posting}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            >
+              {posting ? (
+                <div className="w-3.5 h-3.5 border-2 border-[#080b10] border-t-transparent rounded-full animate-spin" />
+              ) : (
+                "Post Note"
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── EMAILS TAB ───────────────────────────────────────────────────────────────
 function EmailsTab({ lead, onOpenEmailClient }) {
   const [emails, setEmails] = useState([]);
@@ -467,6 +592,7 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
         {[
           { id: "details", label: "Details" },
           { id: "emails", label: "Emails" },
+          { id: "notes", label: "Notes" },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -539,6 +665,13 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
       {activeTab === "emails" && (
         <div className="grid grid-cols-2 gap-x-6 gap-y-4 min-w-0">
           <EmailsTab lead={lead} onOpenEmailClient={onOpenEmailClient} />
+        </div>
+      )}
+
+      {/* Notes tab */}
+      {activeTab === "notes" && (
+        <div className="grid grid-cols-2 gap-x-6 gap-y-4 min-w-0">
+          <NotesTab lead={lead} />
         </div>
       )}
 
