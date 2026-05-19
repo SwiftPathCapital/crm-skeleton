@@ -38,7 +38,14 @@
       "Bash(node --check server/index.js)",
       "Bash(railway *)",
       "Bash(Remove-Item *)",
-      "Bash(Select-Object -First 50 FullName)"
+      "Bash(Select-Object -First 50 FullName)",
+      "Bash(copy *)",
+      "Bash(cmd.exe *)",
+      "PowerShell(cmd /c \"dir \"\"C:\\\\Users\\\\free2\\\\OneDrive\\\\Desktop\\\\\"\" /b\")",
+      "PowerShell(cmd /c \"dir \"\"C:\\\\Users\\\\free2\\\\OneDrive\\\\Desktop\\\\crm-skeleton\\\\\"\" /b | findstr /i gemini\")",
+      "PowerShell(Copy-Item *)",
+      "PowerShell(supabase *)",
+      "Bash(npx supabase *)"
     ]
   }
 }
