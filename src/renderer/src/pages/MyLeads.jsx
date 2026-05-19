@@ -24,7 +24,7 @@ export default function MyLeads({ leads, onSaveLead, onRefresh, onOpenEmailClien
           Refresh
         </button>
       </div>
-      <LeadTable leads={leads} onSaveLead={onSaveLead} onOpenEmailClient={onOpenEmailClient} />
+      <LeadTable leads={leads} onSaveLead={onSaveLead} onOpenEmailClient={onOpenEmailClient} onRefresh={onRefresh} />
     </div>
   );
 }
