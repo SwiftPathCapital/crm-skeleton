@@ -1,30 +1,72 @@
-# Swift Path Capital — CRM
+# Swift Path Capital CRM
 
-Electron desktop app (also deployable as a web app) for sales agents and admins at Swift Path Capital LLC, a merchant cash advance company.
+Sales operations platform for Swift Path Capital LLC (merchant cash advance). Runs as an Electron desktop app and as a web app served from Railway.
+
+- **Live URL**: https://crm-skeleton-production.up.railway.app
+- **GitHub**: https://github.com/SwiftPathCapital/crm-skeleton
+- **Supabase project**: `sdlosxhgqakrumhtzsns`
+
+---
 
 ## Stack
 
-- **Frontend**: Electron 28 + Vite + React 18 + Tailwind CSS
-- **Backend**: Express server (`server/index.js`) running on port 3001, deployed to Railway
-- **Database**: Supabase (Postgres) — `sdlosxhgqakrumhtzsns.supabase.co`
-- **SoftPhone**: Telnyx WebRTC (`@telnyx/webrtc`) — SIP credentials per agent
-- **SMS**: Telnyx REST API via `/sms` server route
-- **Email/Calendar**: Zoho Mail + Zoho Calendar via OAuth (tokens stored in `zoho_tokens` table)
+| Layer | Technology |
+|---|---|
+| Frontend | React 18 + Vite + Tailwind CSS |
+| Desktop wrapper | Electron 28 |
+| Backend | Express (`server/index.js`) on port 3001 |
+| Database | Supabase (Postgres + Auth + RLS) |
+| SoftPhone | Telnyx WebRTC (`@telnyx/webrtc`) |
+| SMS | Telnyx REST API |
+| Email / Calendar | Zoho Mail + Zoho Calendar (OAuth) |
+| Hosting | Railway — Docker, auto-deploys from `master` |
 
-## Dev Commands
+---
+
+## Deployment
+
+Railway builds and deploys automatically on every push to `master`. The Express server serves the React web build from `server/dist/` via a catch-all route. Zoho OAuth redirect URI is hardcoded to the Railway URL.
+
+- **Zoho OAuth redirect**: `https://crm-skeleton-production.up.railway.app/auth/zoho/callback`
+- **Web build output**: `server/dist/` (built with `npm run build:web`)
+- **Electron build**: `dist-electron/` (built with `npm run build`)
+
+---
+
+## Development Workflow
 
 ```bash
-npm run dev          # Electron + Vite dev server
-npm run build        # Electron production build
-npm run build:web    # Web-only build (vite.web.config.js)
-npm run build:win    # Windows installer
+# Install dependencies
+npm install
+
+# Run Electron app (dev mode with hot reload)
+npm run dev
+
+# Run Express backend separately (required for SMS, Zoho, Telnyx webhooks)
+node server/index.js   # listens on port 3001
+
+# Build web app (output → server/dist)
+npm run build:web
+
+# Build Electron app
+npm run build
+
+# Build Windows installer
+npm run build:win
+
+# Push DB migrations
+npx supabase db push   # project already linked to sdlosxhgqakrumhtzsns
 ```
 
-The Express server is separate — run it with `node server/index.js` locally (port 3001). In Electron, `API_BASE` auto-detects `file:` protocol and points to `http://localhost:3001`.
+In Electron, `API_BASE` auto-detects the `file:` protocol and routes API calls to `http://localhost:3001`. In the web build, API calls go to the same origin (Railway).
 
-## Environment Variables (`.env`)
+All pages stay permanently mounted (`display: none` when inactive) via `PageSlot` wrappers in `App.jsx` — this keeps SoftPhone WebRTC connections and email sessions alive across navigation.
 
-All values live in `.env` (gitignored). Required keys:
+---
+
+## Environment Variables
+
+All values live in `.env` at the project root (gitignored). Also set these in Railway for production.
 
 ```
 VITE_SUPABASE_URL
@@ -40,89 +82,89 @@ ZOHO_CLIENT_ID
 ZOHO_CLIENT_SECRET
 ```
 
-## Deployment
+---
 
-- **Backend**: Railway at `https://crm-skeleton-production.up.railway.app`
-- **Zoho OAuth redirect**: `https://crm-skeleton-production.up.railway.app/auth/zoho/callback`
-- **Web build**: served from `server/dist/` via Express catch-all
+## Pages
 
-## Project Structure
+| Page | Route ID | Role | Purpose |
+|---|---|---|---|
+| `Login.jsx` | — | all | Supabase email/password auth |
+| `MyLeads.jsx` | `my-leads` | all | Lead table with filtering, bulk assign/revoke, expanded detail |
+| `DealPipeline.jsx` | `deal-pipeline` | all | Deal/opportunity pipeline view |
+| `Clients.jsx` | `clients` | all | Client management |
+| `ScriptsPage.jsx` | `scripts` | all | Call scripts and reference material |
+| `EmailClient.jsx` | `email-client` | all | Zoho Mail client (inbox + compose) |
+| `CalendarPage.jsx` | `calendar` | all | Zoho Calendar (view + create events) |
+| `SoftPhone.jsx` | `softphone` | all | Telnyx WebRTC softphone + SMS conversations |
+| `Messaging.jsx` | `messaging` | all | Standalone SMS messaging view |
+| `NewApplication.jsx` | `new-application` | all | Iframe for external application form |
+| `Settings.jsx` | `settings` | admin | App and user settings |
+| `AdminDashboard.jsx` | `admin-dashboard` | admin | Live call board (5s polling) + softphone logs |
+| `AgentManagement.jsx` | `agent-management` | admin | Create/edit agents, assign SIP credentials and DIDs |
+| `AgentLeads.jsx` | `agent-leads` | admin | Assign and unassign leads per agent |
 
-```
-src/renderer/src/
-  App.jsx                  # Auth gate, AppShell, all PageSlots, lead fetching
-  components/
-    Sidebar.jsx            # Nav (role-based: admin sees extra section)
-    LeadTable.jsx          # Lead list with filtering, bulk assign/revoke
-    LeadExpandedRow.jsx    # Lead detail: Details / Emails / Notes tabs
-    AnnouncementsBanner.jsx
-  pages/
-    Login.jsx
-    MyLeads.jsx            # Wraps LeadTable
-    AdminDashboard.jsx     # Live call board, softphone logs
-    AgentManagement.jsx    # Create/edit agents, assign SIP creds and DIDs
-    AgentLeads.jsx         # Admin: assign/unassign leads per agent
-    DealPipeline.jsx
-    Clients.jsx
-    ScriptsPage.jsx
-    EmailClient.jsx        # Zoho Mail client
-    CalendarPage.jsx       # Zoho Calendar
-    SoftPhone.jsx          # Telnyx WebRTC softphone + SMS
-    Messaging.jsx
-    Settings.jsx
-    NewApplication.jsx     # iframe
-  context/AppContext.jsx   # userId, agent record, Zoho connection state
-  lib/supabaseClient.js    # createClient(VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY)
-server/index.js            # Express: SMS, Telnyx webhooks, Zoho OAuth + API proxy
-```
+---
 
-## Database Tables
+## Supabase Tables
 
-| Table | Purpose |
-|---|---|
-| `agents` | User accounts — `id` (auth UUID), `full_name`, `email`, `role` (admin\|agent), `did`, `sip_username`, `sip_password` |
-| `leads` | All leads — `assigned_to` (agent UUID, nullable), `status`, `lead_type`, `first_name`, `last_name`, `company_name`, `phone`, etc. |
-| `lead_comments` | Agent notes on leads — `lead_id`, `agent_id`, `agent_name`, `content`, `created_at` |
-| `calls` | Call log — `lead_phone`, `agent_name`, `duration`, `disposition`, `recording_url`, `call_session_id` |
-| `emails` | Email history mirrored from Zoho — `lead_id`, `from_email`, `to_email`, `subject`, `body`, `zoho_message_id` |
-| `sms_conversations` | SMS threads — `contact_phone`, `contact_name`, `last_message` |
-| `sms_messages` | Individual SMS — `conversation_id`, `body`, `direction` (inbound\|outbound) |
-| `zoho_tokens` | Per-agent Zoho OAuth tokens — `id` (agent UUID), `access_token`, `refresh_token`, `expires_at`, `account_id`, `calendar_uid` |
+| Table | Key Columns | Notes |
+|---|---|---|
+| `agents` | `id` (auth UUID), `full_name`, `email`, `role` (admin\|agent), `did`, `sip_username`, `sip_password` | One row per Supabase auth user |
+| `leads` | `id` (UUID PK), `first_name`, `last_name`, `company_name`, `phone`, `lead_type` (ucc\|trigger\|aged\|web\|live_transfer), `status`, `assigned_to` (agent UUID, nullable) | `assigned_to = null` means unassigned; visible to all agents |
+| `lead_comments` | `id`, `lead_id`, `agent_id`, `agent_name`, `content`, `created_at` | Notes tab in lead detail; RLS allows authenticated read/insert |
+| `calls` | `id`, `lead_phone`, `agent_name`, `duration`, `disposition`, `recording_url`, `call_session_id` | Written by SoftPhone on hangup and by Telnyx webhook |
+| `emails` | `id`, `lead_id`, `from_email`, `to_email`, `subject`, `body`, `zoho_message_id`, `sent_at` | Mirrored from Zoho on send; shown in lead Emails tab |
+| `sms_conversations` | `id`, `contact_phone`, `contact_name`, `last_message`, `last_message_at`, `unread_count` | One row per SMS contact |
+| `sms_messages` | `id`, `conversation_id`, `body`, `direction` (inbound\|outbound), `sent_at` | Individual SMS messages |
+| `zoho_tokens` | `id` (agent UUID), `access_token`, `refresh_token`, `expires_at`, `account_id`, `calendar_uid`, `api_domain` | Token auto-refreshed server-side when within 5 min of expiry |
+
+All tables use RLS. The pattern for new tables: enable RLS, add `SELECT` and `INSERT` (and `UPDATE`/`DELETE` as needed) policies for `authenticated` role. Migrations live in `supabase/migrations/`.
+
+---
 
 ## Auth & Roles
 
-- Supabase Auth. On login, agent record is fetched from `agents` table by `user.id`.
-- `role: "admin"` — sees all leads, admin sidebar items (Admin Dashboard, Agent Management, Agent Leads, Settings), agent filter on LeadTable.
-- `role: "agent"` — sees only leads where `assigned_to = userId OR assigned_to IS NULL`.
+Supabase Auth (email/password). On login, the `agents` row is fetched by `user.id` and stored in `AppContext`.
 
-## Key Patterns
+- **admin** — sees all leads; sees Admin Dashboard, Agent Management, Agent Leads, Settings in sidebar; can filter LeadTable by agent
+- **agent** — sees only leads where `assigned_to = userId OR assigned_to IS NULL`
 
-**Supabase client** (frontend): imported from `lib/supabaseClient.js`, used directly in components.
+---
 
-**Lead visibility** (in `App.jsx`): admin fetches all leads; agents filter with `.or('assigned_to.eq.${userId},assigned_to.is.null')`. Leads are fetched in 1000-row pages and stored in top-level state, passed down as props.
+## Key Code Patterns
 
-**PageSlot**: all pages stay mounted (display:none when inactive) to preserve state across nav — important for SoftPhone, EmailClient.
+**Lead fetching** (`App.jsx`): paginated in 1000-row batches, stored in top-level state, passed as props. Admins get all leads; agents get filtered results.
 
-**API_BASE**: `""` in web/dev (proxy via Vite or same-origin), `"http://localhost:3001"` when loaded as `file:` in Electron.
+**Supabase client** (`lib/supabaseClient.js`): imported directly into components and pages — no wrapper abstraction.
 
-**Telnyx SoftPhone**: `TelnyxRTC` initialized with `{ login: sip_username, password: sip_password }`. `newCall()` uses `debug: true`, `preferred_codecs: ['OPUS', 'PCMU']`, `audio: true`, `video: false`.
+**TelnyxRTC** (`SoftPhone.jsx`): initialized with `{ login: sip_username, password: sip_password }`. `newCall()` options: `audio: true`, `video: false`, `debug: true`, `preferred_codecs: ['OPUS', 'PCMU']`.
 
-**Migrations**: tracked in `supabase/migrations/`. Push with `npx supabase db push` (project already linked to `sdlosxhgqakrumhtzsns`). All tables require RLS policies for authenticated users.
+**Zoho token refresh**: handled server-side in `getZohoToken()` — auto-refreshes if within 5 minutes of expiry before making any API call.
+
+---
 
 ## Server Routes
 
-| Route | Purpose |
-|---|---|
-| `POST /sms` | Send SMS via Telnyx |
-| `GET /api/active-calls` | Live calls from Telnyx connection IDs |
-| `GET /api/recordings` | Call recordings from Telnyx |
-| `POST /webhook/telnyx` | Inbound call hangup + recording saved events → writes to `calls` table |
-| `GET /auth/zoho` | Start Zoho OAuth flow |
-| `GET /auth/zoho/callback` | Exchange code, store tokens in `zoho_tokens` |
-| `GET /api/emails/inbox` | Zoho inbox proxy |
-| `GET /api/emails/sent` | Zoho sent proxy |
-| `POST /api/emails/send` | Send via Zoho, mirror to Supabase `emails` |
-| `GET /api/calendar/events` | Zoho Calendar events (next 30 days) |
-| `POST /api/calendar/events` | Create Zoho Calendar event |
-| `DELETE /api/calendar/events/:id` | Delete Zoho Calendar event |
-| `POST /api/send-application` | Email MCA application HTML to submissions@swiftpathtocapital.com via Zoho |
+| Method | Route | Purpose |
+|---|---|---|
+| `POST` | `/sms` | Send SMS via Telnyx |
+| `GET` | `/api/active-calls` | Fetch live calls from Telnyx connection IDs |
+| `GET` | `/api/recordings` | Fetch call recordings from Telnyx |
+| `POST` | `/webhook/telnyx` | Receive Telnyx events; writes hangup + recording to `calls` table |
+| `GET` | `/auth/zoho` | Start Zoho OAuth flow |
+| `GET` | `/auth/zoho/callback` | Exchange code, save tokens to `zoho_tokens` |
+| `GET` | `/api/emails/inbox` | Proxy Zoho inbox |
+| `GET` | `/api/emails/sent` | Proxy Zoho sent folder |
+| `POST` | `/api/emails/send` | Send via Zoho; mirror to Supabase `emails` |
+| `GET` | `/api/calendar/events` | Zoho Calendar events (next 30 days) |
+| `POST` | `/api/calendar/events` | Create Zoho Calendar event |
+| `DELETE` | `/api/calendar/events/:id` | Delete Zoho Calendar event |
+| `POST` | `/api/send-application` | Email MCA application HTML to submissions@swiftpathtocapital.com via Zoho |
+
+---
+
+## Known Issues
+
+- **SoftPhone audio**: Telnyx WebRTC audio reliability is under active investigation. `debug: true` is set on `newCall()` to capture console output. Local audio tracks are force-enabled on call active state. Remote stream is attached to a hidden `<audio>` element.
+- **Documents tab**: The Documents section in the lead detail panel is a placeholder UI — file upload is not yet implemented.
+- **Twilio vars**: `VITE_TWILIO_*` env vars are present but Twilio is not actively used; Telnyx handles calls and SMS.
