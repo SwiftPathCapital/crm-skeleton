@@ -97,18 +97,8 @@ export default function SoftPhone({ agent, visible, onClose }) {
     if (!agent?.sip_username || !agent?.sip_password) return;
 
     const client = new TelnyxRTC({
-      login:         agent.sip_username,
-      password:      agent.sip_password,
-      video:         false,
-      useMic:        true,
-      ringtoneFile:  null,
-      ringbackFile:  null,
-      audio: {
-        incoming: { deviceId: "default" },
-        outgoing: { deviceId: "default" },
-      },
-      speakerDevices: [{ deviceId: "default" }],
-      micDevices:     [{ deviceId: "default" }],
+      login:    agent.sip_username,
+      password: agent.sip_password,
     });
 
     client.on("telnyx.ready", () => setSipStatus("registered"));
@@ -200,9 +190,11 @@ export default function SoftPhone({ agent, visible, onClose }) {
 
     callDestRef.current = dest;
     clientRef.current.newCall({
-      destinationNumber: dest,
-      callerNumber:      agent?.did || "+17869460772",
-      callerIdNumber:    agent?.did || "+17869460772",
+      destinationNumber:  dest,
+      callerNumber:       agent?.did || "+17869460772",
+      callerIdNumber:     agent?.did || "+17869460772",
+      debug:              true,
+      preferred_codecs:   ["OPUS", "PCMU"],
       ...(localStream ? { localStream } : {}),
     });
   }
