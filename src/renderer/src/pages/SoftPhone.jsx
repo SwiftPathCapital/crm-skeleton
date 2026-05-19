@@ -97,10 +97,18 @@ export default function SoftPhone({ agent, visible, onClose }) {
     if (!agent?.sip_username || !agent?.sip_password) return;
 
     const client = new TelnyxRTC({
-      login:    agent.sip_username,
-      password: agent.sip_password,
-      audio:    true,
-      video:    false,
+      login:         agent.sip_username,
+      password:      agent.sip_password,
+      video:         false,
+      useMic:        true,
+      ringtoneFile:  null,
+      ringbackFile:  null,
+      audio: {
+        incoming: { deviceId: "default" },
+        outgoing: { deviceId: "default" },
+      },
+      speakerDevices: [{ deviceId: "default" }],
+      micDevices:     [{ deviceId: "default" }],
     });
 
     client.on("telnyx.ready", () => setSipStatus("registered"));
