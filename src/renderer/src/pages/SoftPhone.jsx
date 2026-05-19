@@ -127,18 +127,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
         setCallState("active");
         setCallSeconds(0);
         timerRef.current = setInterval(() => setCallSeconds(s => s + 1), 1000);
-        // Diagnose audio send path 3s into the call
-        setTimeout(async () => {
-          const pc = notification.call.peer?.instance || notification.call.peer?._pc;
-          if (!pc) { console.warn("[audio-stats] no RTCPeerConnection found"); return; }
-          const stats = await pc.getStats();
-          stats.forEach(r => {
-            if (r.type === "outbound-rtp" && r.kind === "audio")
-              console.log("[audio-stats] outbound packets:", r.packetsSent, "bytes:", r.bytesSent);
-            if (r.type === "media-source" && r.kind === "audio")
-              console.log("[audio-stats] mic level:", r.audioLevel?.toFixed(4), "total samples:", r.totalSamplesDuration?.toFixed(2));
-          });
-        }, 3000);
+
         const remoteStream = notification.call.remoteStream;
         if (audioRef.current && remoteStream) {
           audioRef.current.srcObject = remoteStream;
