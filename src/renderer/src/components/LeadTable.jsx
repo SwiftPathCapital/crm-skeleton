@@ -1,5 +1,5 @@
 // src/components/LeadTable.jsx
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useApp } from "../context/AppContext";
 import LeadExpandedRow from "./LeadExpandedRow";
@@ -49,20 +49,15 @@ function StatusBadge({ status }) {
   );
 }
 
-// Checkbox that supports indeterminate state
-function Checkbox({ checked, indeterminate, onChange, onClick }) {
-  const ref = useRef(null);
-  useEffect(() => {
-    if (ref.current) ref.current.indeterminate = !!indeterminate;
-  }, [indeterminate]);
+// Header checkbox with indeterminate support via callback ref
+function SelectAllCheckbox({ checked, indeterminate, onChange }) {
   return (
     <input
-      ref={ref}
       type="checkbox"
+      ref={(el) => { if (el) el.indeterminate = indeterminate; }}
       checked={checked}
       onChange={onChange}
-      onClick={onClick}
-      className="w-4 h-4 rounded border-[#2a3040] bg-[#0f1117] text-[#c9a84c] accent-[#c9a84c] cursor-pointer"
+      className="w-4 h-4 cursor-pointer accent-[#c9a84c]"
     />
   );
 }
@@ -194,12 +189,11 @@ export default function LeadTable({ leads, onSaveLead, onOpenEmailClient, onRefr
           <thead className="sticky top-0 z-10">
             <tr className="bg-[#0f1117] border-b border-[#1e2130]">
               {isAdmin && (
-                <th className="px-4 py-3 w-10">
-                  <Checkbox
+                <th className="px-4 py-3 w-10" onClick={(e) => e.stopPropagation()}>
+                  <SelectAllCheckbox
                     checked={allSelected}
                     indeterminate={someSelected && !allSelected}
                     onChange={toggleSelectAll}
-                    onClick={(e) => e.stopPropagation()}
                   />
                 </th>
               )}
@@ -240,10 +234,15 @@ export default function LeadTable({ leads, onSaveLead, onOpenEmailClient, onRefr
                   >
                     {isAdmin && (
                       <td className="px-4 py-3 w-10" onClick={(e) => e.stopPropagation()}>
-                        <Checkbox
+                        <input
+                          type="checkbox"
                           checked={isChecked}
-                          onChange={() => {}}
-                          onClick={(e) => toggleSelect(lead.id, e)}
+                          onChange={() => setSelectedIds((prev) => {
+                            const next = new Set(prev);
+                            next.has(lead.id) ? next.delete(lead.id) : next.add(lead.id);
+                            return next;
+                          })}
+                          className="w-4 h-4 cursor-pointer accent-[#c9a84c]"
                         />
                       </td>
                     )}
