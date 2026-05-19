@@ -4,6 +4,7 @@ import Sidebar from "./components/Sidebar";
 import MyLeads from "./pages/MyLeads";
 import AdminDashboard from "./pages/AdminDashboard";
 import AgentManagement from "./pages/AgentManagement";
+import AgentLeads from "./pages/AgentLeads";
 import DealPipeline from "./pages/DealPipeline";
 import Clients from "./pages/Clients";
 import ScriptsPage from "./pages/ScriptsPage";
@@ -194,6 +195,9 @@ function AppShell() {
             </PageSlot>
             <PageSlot active={activeView === "agent-management"} padded>
               <AgentManagement />
+            </PageSlot>
+            <PageSlot active={activeView === "agent-leads"} padded>
+              <AgentLeads />
             </PageSlot>
           </>
         )}
