@@ -88,10 +88,12 @@ export default function LeadTable({ leads, onSaveLead, onOpenEmailClient, onRefr
   const [expandedId,    setExpandedId]    = useState(null);
   const [search,        setSearch]        = useState("");
   const [filterType,    setFilterType]    = useState("all");
+  const [filterAgent,   setFilterAgent]   = useState("all");
   const [selectedIds,   setSelectedIds]   = useState(new Set());
   const [agentsList,    setAgentsList]    = useState([]);
   const [assignTarget,  setAssignTarget]  = useState("");
   const [assigning,     setAssigning]     = useState(false);
+  const [revoking,      setRevoking]      = useState(false);
   const [successMsg,    setSuccessMsg]    = useState("");
 
   useEffect(() => {
@@ -105,6 +107,10 @@ export default function LeadTable({ leads, onSaveLead, onOpenEmailClient, onRefr
 
   const filtered = leads.filter((l) => {
     const matchType = filterType === "all" || l.lead_type === filterType;
+    const matchAgent =
+      !isAdmin ||
+      filterAgent === "all" ||
+      (filterAgent === "unassigned" ? !l.assigned_to : l.assigned_to === filterAgent);
     const q = search.toLowerCase();
     const matchSearch =
       !q ||
@@ -114,7 +120,7 @@ export default function LeadTable({ leads, onSaveLead, onOpenEmailClient, onRefr
       l.phone?.includes(q) ||
       l.state?.toLowerCase().includes(q) ||
       l.lead_vendor?.toLowerCase().includes(q);
-    return matchType && matchSearch;
+    return matchType && matchAgent && matchSearch;
   });
 
   const allSelected  = filtered.length > 0 && filtered.every((l) => selectedIds.has(l.id));
@@ -140,6 +146,23 @@ export default function LeadTable({ leads, onSaveLead, onOpenEmailClient, onRefr
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
+  }
+
+  async function handleBulkRevoke() {
+    if (totalSelected === 0 || revoking) return;
+    setRevoking(true);
+    const ids = [...selectedIds];
+    const { error } = await supabase
+      .from("leads")
+      .update({ assigned_to: null })
+      .in("id", ids);
+    if (!error) {
+      setSelectedIds(new Set());
+      setSuccessMsg(`${ids.length} lead${ids.length !== 1 ? "s" : ""} unassigned`);
+      setTimeout(() => setSuccessMsg(""), 4000);
+      onRefresh?.();
+    }
+    setRevoking(false);
   }
 
   async function handleBulkAssign() {
@@ -193,6 +216,20 @@ export default function LeadTable({ leads, onSaveLead, onOpenEmailClient, onRefr
             </button>
           ))}
         </div>
+
+        {isAdmin && agentsList.length > 0 && (
+          <select
+            value={filterAgent}
+            onChange={(e) => setFilterAgent(e.target.value)}
+            className="bg-[#0f1117] border border-[#1e2130] rounded-lg px-3 py-2 text-sm text-[#8892a4] focus:outline-none focus:border-[#c9a84c] transition-colors"
+          >
+            <option value="all">All agents</option>
+            <option value="unassigned">Unassigned</option>
+            {agentsList.map((a) => (
+              <option key={a.id} value={a.id}>{a.full_name}</option>
+            ))}
+          </select>
+        )}
 
         <div className="text-[#4a5568] text-xs ml-auto">
           {filtered.length} lead{filtered.length !== 1 ? "s" : ""}
@@ -349,6 +386,21 @@ export default function LeadTable({ leads, onSaveLead, onOpenEmailClient, onRefr
               </svg>
             )}
             {assigning ? "Assigning…" : "Assign"}
+          </button>
+
+          <button
+            onClick={handleBulkRevoke}
+            disabled={revoking}
+            className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-semibold bg-[#1e2130] border border-[#3d1515] text-[#ef4444] hover:bg-[#2a1a1a] disabled:opacity-40 disabled:cursor-not-allowed transition-all whitespace-nowrap"
+          >
+            {revoking ? (
+              <div className="w-4 h-4 border-2 border-[#ef4444] border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6" />
+              </svg>
+            )}
+            {revoking ? "Revoking…" : "Revoke"}
           </button>
 
           <button
