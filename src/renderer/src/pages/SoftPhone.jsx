@@ -87,7 +87,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
   const timerRef         = useRef(null);
   const callStartRef     = useRef(null);  // Date when call went active
   const callDestRef      = useRef("");    // E164 destination dialled
-  const localStreamRef   = useRef(null);  // Mic stream captured before newCall()
+  const micConstraints   = useRef(null);  // Cached result of enumerateDevices()
   const [sipStatus, setSipStatus]             = useState("disconnected"); // disconnected | connecting | registered | failed
   const [callState, setCallState]             = useState(null);           // null | ringing_out | ringing_in | active
   const [incomingCallerId, setIncomingCallerId] = useState("");
@@ -135,7 +135,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
         }
       } else if (state === "destroy" || state === "hangup" || state === "done") {
         clearInterval(timerRef.current);
-        localStreamRef.current = null;
+        if (audioRef.current) audioRef.current.srcObject = null;
         // Save call record if the call was ever active
         if (callStartRef.current) {
           const duration = Math.round((Date.now() - callStartRef.current.getTime()) / 1000);
@@ -169,17 +169,17 @@ export default function SoftPhone({ agent, visible, onClose }) {
   }, [agent?.sip_username, agent?.sip_password]);
 
   async function getRealMicConstraints() {
+    if (micConstraints.current) return micConstraints.current;
     const devices = await navigator.mediaDevices.enumerateDevices();
     const loopbackTerms = ['stereo mix', 'what u hear', 'wave out', 'loopback', 'virtual'];
     const realMics = devices.filter(d =>
       d.kind === 'audioinput' &&
       !loopbackTerms.some(t => d.label.toLowerCase().includes(t))
     );
-    if (realMics.length > 0) {
-      console.log("[mic] will use device:", realMics[0].label);
-      return { deviceId: { exact: realMics[0].deviceId } };
-    }
-    return true;
+    const constraints = realMics.length > 0 ? { deviceId: { exact: realMics[0].deviceId } } : true;
+    if (realMics.length > 0) console.log("[mic] using device:", realMics[0].label);
+    micConstraints.current = constraints;
+    return constraints;
   }
 
   async function makeCall() {
@@ -198,14 +198,19 @@ export default function SoftPhone({ agent, visible, onClose }) {
     const audioConstraints = await getRealMicConstraints();
 
     callDestRef.current = dest;
-    clientRef.current.newCall({
-      destinationNumber:  dest,
-      callerNumber:       agent?.did || "+17869460772",
-      callerIdNumber:     agent?.did || "+17869460772",
-      debug:              true,
-      audio:              audioConstraints,
-      video:              false,
-    });
+    try {
+      clientRef.current.newCall({
+        destinationNumber:  dest,
+        callerNumber:       agent?.did || "+17869460772",
+        callerIdNumber:     agent?.did || "+17869460772",
+        debug:              true,
+        audio:              audioConstraints,
+        video:              false,
+      });
+    } catch (err) {
+      console.error("[makeCall] newCall() failed:", err);
+      callDestRef.current = "";
+    }
   }
 
   async function answerCall() {
@@ -221,6 +226,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
 
   function hangUp() {
     clearInterval(timerRef.current);
+    if (audioRef.current) audioRef.current.srcObject = null;
     // Save call record before clearing refs
     if (callStartRef.current) {
       const duration = Math.round((Date.now() - callStartRef.current.getTime()) / 1000);
