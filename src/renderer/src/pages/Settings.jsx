@@ -148,22 +148,52 @@ function PhoneSection({ raw, upsert }) {
 
   async function addDid() {
     if (!newDid.number.trim()) return;
-    await wrap(() => upsert({ phone_dids: JSON.stringify([...dids, { id: Date.now().toString(), ...newDid }]) }));
+    const entry = { id: Date.now().toString(), ...newDid };
+    await wrap(async () => {
+      await upsert({ phone_dids: JSON.stringify([...dids, entry]) });
+      // Sync to agents.did so SoftPhone picks it up
+      if (entry.assignedTo) {
+        await supabase.from("agents").update({ did: entry.number }).eq("id", entry.assignedTo);
+      }
+    });
     setNewDid({ number: "", label: "", assignedTo: "", callerId: "" });
     setAdding(false);
   }
 
   async function removeDid(id) {
+    const removed = dids.find(d => d.id === id);
     await upsert({ phone_dids: JSON.stringify(dids.filter((d) => d.id !== id)) });
+    // Clear agents.did if this DID was assigned
+    if (removed?.assignedTo) {
+      await supabase.from("agents").update({ did: null }).eq("id", removed.assignedTo);
+    }
   }
 
   async function patchDid(id, field, value) {
-    await upsert({ phone_dids: JSON.stringify(dids.map((d) => d.id === id ? { ...d, [field]: value } : d)) });
+    const prev = dids.find(d => d.id === id);
+    const updated = dids.map((d) => d.id === id ? { ...d, [field]: value } : d);
+    await upsert({ phone_dids: JSON.stringify(updated) });
+
+    if (field === "assignedTo") {
+      const number = prev?.number;
+      // Assign DID to new agent
+      if (value && number) {
+        await supabase.from("agents").update({ did: number }).eq("id", value);
+      }
+      // Clear DID from the previous agent
+      if (prev?.assignedTo && prev.assignedTo !== value) {
+        await supabase.from("agents").update({ did: null }).eq("id", prev.assignedTo);
+      }
+    }
+    if (field === "number" && prev?.assignedTo) {
+      // Number changed — update agents.did with the new number
+      await supabase.from("agents").update({ did: value }).eq("id", prev.assignedTo);
+    }
   }
 
   return (
     <div>
-      <SectionHeader title="Phone Settings" description="Manage DIDs, assign to agents, and configure caller ID" />
+      <SectionHeader title="Phone Settings" description="Manage DIDs and assign to agents. Assigning a DID here updates the agent's active caller ID in the SoftPhone immediately." />
 
       <Card className="mb-4">
         <div className="px-5 py-4 border-b border-[#1e2130] flex items-center justify-between">
@@ -386,17 +416,26 @@ function CallSection({ raw, upsert }) {
 
 // ── 3. Agent Settings ─────────────────────────────────────────────────────────
 
-function AgentSection({ raw, upsert }) {
+function AgentSection({ raw }) {
   const [agents,   setAgents]   = useState([]);
   const [loading,  setLoading]  = useState(true);
-  const [sipCreds, setSipCreds] = useState(parseJson(raw.agent_sip, {}));
+  const [sipCreds, setSipCreds] = useState({});
   const [expanded, setExpanded] = useState(null);
   const { saving, saved, wrap } = useSaveState();
   const dids = parseJson(raw.phone_dids, []);
 
   useEffect(() => {
-    supabase.from("agents").select("id, full_name, email, role").order("full_name")
-      .then(({ data }) => { setAgents(data || []); setLoading(false); });
+    supabase.from("agents").select("id, full_name, email, role, sip_username, sip_password, did").order("full_name")
+      .then(({ data }) => {
+        setAgents(data || []);
+        // Seed creds from agents table (the source of truth)
+        const creds = {};
+        (data || []).forEach(a => {
+          creds[a.id] = { username: a.sip_username || "", password: a.sip_password || "" };
+        });
+        setSipCreds(creds);
+        setLoading(false);
+      });
   }, []);
 
   function getCred(agentId, field) {
@@ -408,16 +447,29 @@ function AgentSection({ raw, upsert }) {
   }
 
   async function saveSip() {
-    await wrap(() => upsert({ agent_sip: JSON.stringify(sipCreds) }));
+    // Write directly to agents table — this is what the SoftPhone reads
+    await wrap(async () => {
+      await Promise.all(
+        Object.entries(sipCreds).map(([agentId, creds]) =>
+          supabase.from("agents").update({
+            sip_username: creds.username || null,
+            sip_password: creds.password || null,
+          }).eq("id", agentId)
+        )
+      );
+    });
   }
 
   function agentDids(agentId) {
+    const agent = agents.find(a => a.id === agentId);
+    // Show DID from agents table (source of truth), fall back to phone_dids setting
+    if (agent?.did) return agent.did;
     return dids.filter((d) => d.assignedTo === agentId).map((d) => d.number).join(", ") || "None";
   }
 
   return (
     <div>
-      <SectionHeader title="Agent Settings" description="View agents, manage SIP credentials, and DID assignments" />
+      <SectionHeader title="Agent Settings" description="Manage SIP credentials per agent. Changes save directly to the agents table and take effect on the agent's next SoftPhone reconnect." />
 
       {loading ? (
         <div className="flex items-center justify-center h-32">
@@ -652,7 +704,7 @@ function IntegrationsSection({ raw, upsert }) {
       <Card className="p-5">
         <CardTitle>API Credentials & URLs</CardTitle>
         <div className="space-y-4 mb-5">
-          <Field label="Telnyx API Key" hint="Used for SMS, SIP calling, and DID provisioning">
+          <Field label="Telnyx API Key" hint="⚠ Stored for reference only — the server reads TELNYX_API_KEY from Railway environment variables. Changing this has no effect on the running server.">
             <div className="relative">
               <TextInput
                 type={showKey ? "text" : "password"}
@@ -931,7 +983,7 @@ export default function Settings() {
     switch (activeSection) {
       case "phone":        return <PhoneSection        {...props} />;
       case "call":         return <CallSection         {...props} />;
-      case "agents":       return <AgentSection        {...props} />;
+      case "agents":       return <AgentSection        raw={raw} />;
       case "campaign":     return <CampaignSection     {...props} />;
       case "integrations": return <IntegrationsSection {...props} />;
       case "branding":     return <BrandingSection     {...props} />;
