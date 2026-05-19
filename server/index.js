@@ -72,22 +72,19 @@ app.post('/sms', async (req, res) => {
 
 app.get('/api/active-calls', async (req, res) => {
   const CONNECTION_IDS = ['2950311615590827625', '2950540692578895477'];
-  try {
-    const results = await Promise.all(
-      CONNECTION_IDS.map(id =>
-        axios.get(`https://api.telnyx.com/v2/calls?connection_id=${id}`, {
-          headers: { Authorization: 'Bearer ' + API_KEY }
-        })
-      )
-    );
-    const data = results.flatMap(r => r.data?.data || []);
-    res.json({ data });
-  } catch (err) {
-    console.error('[active-calls] status:', err.response?.status);
-    console.error('[active-calls] body:', JSON.stringify(err.response?.data));
-    console.error('[active-calls] message:', err.message);
-    res.status(500).json({ error: err.response?.data || err.message });
-  }
+  const results = await Promise.allSettled(
+    CONNECTION_IDS.map(id =>
+      axios.get(`https://api.telnyx.com/v2/calls?connection_id=${id}`, {
+        headers: { Authorization: 'Bearer ' + API_KEY }
+      })
+    )
+  );
+  const data = results.flatMap(r =>
+    r.status === 'fulfilled' ? (r.value.data?.data || []) : []
+  );
+  const errors = results.filter(r => r.status === 'rejected').map(r => r.reason?.response?.status);
+  if (errors.length) console.warn('[active-calls] some connection IDs failed with statuses:', errors);
+  res.json({ data });
 });
 
 app.get('/api/recordings', async (req, res) => {
