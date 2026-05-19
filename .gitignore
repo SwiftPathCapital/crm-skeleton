@@ -4,3 +4,5 @@ dist-electron
 .env.local
 *.local
 files (1).zip
+supabase/.temp
+Gemini_Generated_Image_*
