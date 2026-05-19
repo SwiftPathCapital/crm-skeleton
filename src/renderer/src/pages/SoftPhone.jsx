@@ -206,7 +206,6 @@ export default function SoftPhone({ agent, visible, onClose }) {
       callerNumber:       agent?.did || "+17869460772",
       callerIdNumber:     agent?.did || "+17869460772",
       debug:              true,
-      preferred_codecs:   ["OPUS", "PCMU"],
       audio:              true,
       video:              false,
       ...(localStreamRef.current ? { localStream: localStreamRef.current } : {}),
