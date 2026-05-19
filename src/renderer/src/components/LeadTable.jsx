@@ -49,16 +49,35 @@ function StatusBadge({ status }) {
   );
 }
 
-// Header checkbox with indeterminate support via callback ref
-function SelectAllCheckbox({ checked, indeterminate, onChange }) {
+// Custom checkbox — pure React state, no native input quirks
+function CheckIcon() {
   return (
-    <input
-      type="checkbox"
-      ref={(el) => { if (el) el.indeterminate = indeterminate; }}
-      checked={checked}
-      onChange={onChange}
-      className="w-4 h-4 cursor-pointer accent-[#c9a84c]"
-    />
+    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+    </svg>
+  );
+}
+function MinusIcon() {
+  return (
+    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 12h14" />
+    </svg>
+  );
+}
+
+function SelectBox({ checked, indeterminate, onToggle }) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); onToggle(); }}
+      className={`w-4 h-4 rounded flex items-center justify-center border transition-colors flex-shrink-0 ${
+        checked || indeterminate
+          ? "bg-[#c9a84c] border-[#c9a84c] text-[#080b10]"
+          : "border-[#4a5568] text-transparent hover:border-[#c9a84c]"
+      }`}
+    >
+      {checked ? <CheckIcon /> : indeterminate ? <MinusIcon /> : null}
+    </button>
   );
 }
 
@@ -189,11 +208,11 @@ export default function LeadTable({ leads, onSaveLead, onOpenEmailClient, onRefr
           <thead className="sticky top-0 z-10">
             <tr className="bg-[#0f1117] border-b border-[#1e2130]">
               {isAdmin && (
-                <th className="px-4 py-3 w-10" onClick={(e) => e.stopPropagation()}>
-                  <SelectAllCheckbox
+                <th className="px-4 py-3 w-10">
+                  <SelectBox
                     checked={allSelected}
                     indeterminate={someSelected && !allSelected}
-                    onChange={toggleSelectAll}
+                    onToggle={toggleSelectAll}
                   />
                 </th>
               )}
@@ -233,16 +252,15 @@ export default function LeadTable({ leads, onSaveLead, onOpenEmailClient, onRefr
                     }`}
                   >
                     {isAdmin && (
-                      <td className="px-4 py-3 w-10" onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
+                      <td className="px-4 py-3 w-10">
+                        <SelectBox
                           checked={isChecked}
-                          onChange={() => setSelectedIds((prev) => {
+                          indeterminate={false}
+                          onToggle={() => setSelectedIds((prev) => {
                             const next = new Set(prev);
                             next.has(lead.id) ? next.delete(lead.id) : next.add(lead.id);
                             return next;
                           })}
-                          className="w-4 h-4 cursor-pointer accent-[#c9a84c]"
                         />
                       </td>
                     )}
