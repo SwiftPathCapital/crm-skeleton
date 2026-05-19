@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run build:web)",
+      "Bash(npm run build:electron)",
+      "Bash(railway status)",
+      "Bash(railway version)",
+      "Bash(railway logs *)",
+      "Bash(node --check *)",
+      "WebFetch(domain:telnyx.com)",
+      "WebFetch(domain:supabase.com)",
+      "WebFetch(domain:railway.app)"
+    ]
+  }
+}
