@@ -105,8 +105,13 @@ export function AppProvider({ children }) {
     stopRefresh();
   }
 
+  async function getAuthToken() {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token || null;
+  }
+
   return (
-    <AppContext.Provider value={{ userId, agent, zohoConnected, setZohoConnected, disconnectZoho }}>
+    <AppContext.Provider value={{ userId, agent, zohoConnected, setZohoConnected, disconnectZoho, getAuthToken }}>
       {children}
     </AppContext.Provider>
   );

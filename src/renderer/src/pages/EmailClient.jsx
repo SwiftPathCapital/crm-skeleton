@@ -186,7 +186,7 @@ function ComposeModal({ onClose, onSend, initialTo = "", initialSubject = "", in
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function EmailClient({ initialCompose = null, initialEmailId = null }) {
-  const { zohoConnected, setZohoConnected, userId, disconnectZoho } = useApp();
+  const { zohoConnected, setZohoConnected, userId, disconnectZoho, getAuthToken } = useApp();
 
   const [folder,        setFolder]        = useState("inbox");
   const [emails,        setEmails]        = useState([]);
@@ -238,7 +238,10 @@ export default function EmailClient({ initialCompose = null, initialEmailId = nu
       // Use Zoho API for inbox / sent when connected
       if (zohoConnected && userId && (folder === "inbox" || folder === "sent")) {
         const endpoint = folder === "sent" ? "/api/emails/sent" : "/api/emails/inbox";
-        const res = await fetch(`${API_BASE}${endpoint}?agentId=${userId}&limit=50`);
+        const token = await getAuthToken();
+        const res = await fetch(`${API_BASE}${endpoint}?limit=50`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
         if (res.ok) {
           const json = await res.json();
           const msgs = (json.data || []).map((zm) => mapZohoMessage(zm, folder));
@@ -264,10 +267,14 @@ export default function EmailClient({ initialCompose = null, initialEmailId = nu
     // Route through the Express proxy when Zoho is connected
     if (zohoConnected && userId) {
       try {
+        const token = await getAuthToken();
         const res = await fetch(`${API_BASE}/api/emails/send`, {
           method:  "POST",
-          headers: { "Content-Type": "application/json" },
-          body:    JSON.stringify({ agentId: userId, to, cc, subject, body }),
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body:    JSON.stringify({ to, cc, subject, body }),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));

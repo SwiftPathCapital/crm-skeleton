@@ -41,7 +41,10 @@ export default function AdminDashboard() {
     let live = true;
     async function poll() {
       try {
-        const r = await fetch(`/api/active-calls`);
+        const { data: { session } } = await supabase.auth.getSession();
+        const r = await fetch(`/api/active-calls`, {
+          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        });
         if (r.ok && live) {
           const json = await r.json();
           setActiveCalls(json.data || []);

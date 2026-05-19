@@ -3,6 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const axios = require('axios');
 const ws = require('ws');
+const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
@@ -10,7 +11,6 @@ const fromNumber = process.env.TELNYX_PHONE_NUMBER;
 const API_KEY = process.env.TELNYX_API_KEY;
 
 // ── Zoho OAuth config ─────────────────────────────────────────────────────────
-// Requires the zoho_tokens table — see zoho_tokens_migration.sql
 const ZOHO_CLIENT_ID     = process.env.ZOHO_CLIENT_ID;
 const ZOHO_CLIENT_SECRET = process.env.ZOHO_CLIENT_SECRET;
 const ZOHO_REDIRECT_URI  = 'https://crm-skeleton-production.up.railway.app/auth/zoho/callback';
@@ -31,10 +31,119 @@ const supabase = createClient(
 );
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+
+// ── CORS: restrict to known origins ──────────────────────────────────────────
+const ALLOWED_ORIGINS = new Set([
+  'https://crm-skeleton-production.up.railway.app',
+  'http://localhost:5173',
+  'http://localhost:4173',
+  'http://localhost:3001',
+]);
+app.use(cors({
+  origin: (origin, cb) => {
+    // Allow requests with no origin (Electron file://, server-to-server)
+    if (!origin || ALLOWED_ORIGINS.has(origin)) return cb(null, true);
+    cb(Object.assign(new Error('CORS: origin not allowed'), { status: 403 }));
+  },
+  credentials: true,
+}));
+
+// Capture raw body for Telnyx webhook signature verification
+app.use(express.json({
+  verify: (req, _res, buf) => { req.rawBody = buf.toString(); },
+}));
 app.use(express.urlencoded({ extended: false }));
 app.use(express.static(path.join(__dirname, 'dist')));
+
+// ── Auth middleware ───────────────────────────────────────────────────────────
+async function requireAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Authorization required' });
+  }
+  const token = authHeader.slice(7);
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) {
+    return res.status(401).json({ error: 'Invalid or expired session' });
+  }
+  req.userId = user.id;
+  next();
+}
+
+// Apply requireAuth to all /api/* routes and /sms
+app.use('/api', requireAuth);
+app.use('/sms', requireAuth);
+
+// ── OAuth CSRF helpers ────────────────────────────────────────────────────────
+const OAUTH_STATE_SECRET = process.env.OAUTH_STATE_SECRET || (() => {
+  if (process.env.NODE_ENV !== 'development') {
+    console.warn('[oauth] OAUTH_STATE_SECRET not set — using insecure fallback');
+  }
+  return 'dev-fallback-secret-change-me';
+})();
+
+function buildOAuthState(agentId) {
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const ts = Date.now().toString();
+  const payload = `${agentId}:${nonce}:${ts}`;
+  const sig = crypto.createHmac('sha256', OAUTH_STATE_SECRET).update(payload).digest('hex');
+  return Buffer.from(`${payload}:${sig}`).toString('base64url');
+}
+
+function parseOAuthState(state) {
+  try {
+    const decoded = Buffer.from(state, 'base64url').toString();
+    const lastColon = decoded.lastIndexOf(':');
+    const payload = decoded.slice(0, lastColon);
+    const sig = decoded.slice(lastColon + 1);
+    const expected = crypto.createHmac('sha256', OAUTH_STATE_SECRET).update(payload).digest('hex');
+    if (!crypto.timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(expected, 'hex'))) return null;
+    const [agentId, , ts] = payload.split(':');
+    // Reject states older than 10 minutes
+    if (Date.now() - parseInt(ts, 10) > 600_000) return null;
+    return agentId;
+  } catch {
+    return null;
+  }
+}
+
+// ── Telnyx webhook signature verification ────────────────────────────────────
+function verifyTelnyxSignature(req, res, next) {
+  const sigHeader = req.headers['x-telnyx-signature-ed25519'];
+  const timestamp = req.headers['x-telnyx-timestamp'];
+  const publicKeyB64 = process.env.TELNYX_WEBHOOK_PUBLIC_KEY;
+
+  if (!publicKeyB64) {
+    console.warn('[webhook] TELNYX_WEBHOOK_PUBLIC_KEY not set — set this env var to enable signature verification');
+    return next();
+  }
+
+  if (!sigHeader || !timestamp) {
+    return res.status(400).json({ error: 'Missing webhook signature headers' });
+  }
+
+  const tsMs = parseInt(timestamp, 10) * 1000;
+  if (Math.abs(Date.now() - tsMs) > 300_000) {
+    return res.status(400).json({ error: 'Webhook timestamp expired' });
+  }
+
+  try {
+    const message = Buffer.from(`${timestamp}|${req.rawBody || ''}`);
+    const sig = Buffer.from(sigHeader, 'base64');
+    const pubKey = crypto.createPublicKey({
+      key: Buffer.from(publicKeyB64, 'base64'),
+      format: 'der',
+      type: 'spki',
+    });
+    if (!crypto.verify('ed25519', message, pubKey, sig)) {
+      return res.status(400).json({ error: 'Invalid webhook signature' });
+    }
+    next();
+  } catch (err) {
+    console.error('[webhook] signature error:', err.message);
+    return res.status(400).json({ error: 'Signature verification failed' });
+  }
+}
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', number: fromNumber });
@@ -95,7 +204,6 @@ app.get('/api/recordings', async (req, res) => {
     });
     const recordings = listRes.data?.data || [];
 
-    // Fetch full detail for each recording in parallel to get download_url, from, to
     const detailed = await Promise.all(
       recordings.map(async rec => {
         try {
@@ -125,7 +233,7 @@ app.get('/api/recordings', async (req, res) => {
   }
 });
 
-app.post('/webhook/telnyx', async (req, res) => {
+app.post('/webhook/telnyx', verifyTelnyxSignature, async (req, res) => {
   // Acknowledge immediately — Telnyx retries if it doesn't get a 200 fast
   res.sendStatus(200);
 
@@ -138,7 +246,6 @@ app.post('/webhook/telnyx', async (req, res) => {
 
   if (eventType === 'call.hangup') {
     if (payload.direction === 'inbound') {
-      // Lead called in — create or merge the row keyed on call_session_id
       await supabase.from('calls').upsert({
         call_session_id: sessionId,
         lead_phone: payload.from || null,
@@ -146,7 +253,6 @@ app.post('/webhook/telnyx', async (req, res) => {
         created_at: payload.start_time || new Date().toISOString(),
       }, { onConflict: 'call_session_id' });
     }
-
   }
 
   if (eventType === 'call.recording.saved') {
@@ -157,8 +263,6 @@ app.post('/webhook/telnyx', async (req, res) => {
       ? Math.round(payload.duration_millis / 1000)
       : null;
 
-    // Try to update an existing row first; if none exists (recording arrived
-    // without a prior hangup event), create it
     const { data: existing } = await supabase
       .from('calls')
       .select('id')
@@ -183,10 +287,8 @@ app.post('/webhook/telnyx', async (req, res) => {
 
 // ── Zoho helpers ──────────────────────────────────────────────────────────────
 
-// Fetch token from zoho_tokens table, refreshing if within 5 min of expiry.
 async function getZohoToken(agentId) {
   console.log('[getZohoToken] looking up agentId:', agentId, '(type:', typeof agentId, ')');
-  console.log('[getZohoToken] query: SELECT access_token,refresh_token,expires_at,account_id,calendar_uid,api_domain FROM zoho_tokens WHERE id =', agentId);
 
   const { data: row, error } = await supabase
     .from('zoho_tokens')
@@ -241,25 +343,27 @@ app.get('/auth/zoho', (req, res) => {
     scope:         ZOHO_SCOPES,
     redirect_uri:  ZOHO_REDIRECT_URI,
     access_type:   'offline',
-    state:         agentId,
+    state:         buildOAuthState(agentId),
   });
   res.redirect(`${ZOHO_AUTH_URL}?${params}`);
 });
 
 // ── 2. GET /auth/zoho/callback ────────────────────────────────────────────────
 app.get('/auth/zoho/callback', async (req, res) => {
-  const { code, state: agentId, error: oauthError } = req.query;
+  const { code, state, error: oauthError } = req.query;
   if (oauthError || !code) {
     return res.status(400).send(`Zoho OAuth error: ${oauthError || 'no authorization code received'}`);
   }
 
+  const agentId = parseOAuthState(state);
+  if (!agentId) {
+    return res.status(400).send('Invalid or expired OAuth state. Please try connecting again.');
+  }
+
   try {
-    // Exchange code for tokens
     console.log('[zoho/callback] exchanging code for token...');
     console.log('[zoho/callback] redirect_uri:', ZOHO_REDIRECT_URI);
-    console.log('[zoho/callback] client_id:', ZOHO_CLIENT_ID);
-    console.log('[zoho/callback] agentId (state):', agentId);
-    console.log('[zoho/callback] code (first 20 chars):', code?.slice(0, 20));
+    console.log('[zoho/callback] agentId (from state):', agentId);
 
     let tokenRes;
     try {
@@ -289,17 +393,14 @@ app.get('/auth/zoho/callback', async (req, res) => {
     const calBase    = 'https://calendar.zoho.com';
     const expires_at = Date.now() + (expires_in || 3600) * 1000;
 
-    // Fetch Zoho Mail account ID
     const accountsUrl = `${mailBase}/api/accounts`;
     console.log('[zoho/callback] fetching accounts from:', accountsUrl);
     const accountsRes = await axios.get(accountsUrl, {
       headers: { Authorization: `Bearer ${access_token}` },
     });
     console.log('[zoho/callback] accounts response status:', accountsRes.status);
-    console.log('[zoho/callback] accounts response body:', JSON.stringify(accountsRes.data));
     const accountId = accountsRes.data?.data?.[0]?.accountId;
 
-    // Fetch default Zoho Calendar UID (best-effort)
     let calendarUid = null;
     try {
       const calsRes = await axios.get(`${calBase}/api/v1/calendars`, {
@@ -310,7 +411,6 @@ app.get('/auth/zoho/callback', async (req, res) => {
       console.warn('[zoho/callback] calendar fetch skipped:', calErr.message);
     }
 
-    // Upsert into zoho_tokens table
     await supabase.from('zoho_tokens').upsert({
       id:           agentId,
       access_token,
@@ -340,10 +440,9 @@ app.get('/auth/zoho/callback', async (req, res) => {
 
 // ── 3. GET /api/emails/inbox ──────────────────────────────────────────────────
 app.get('/api/emails/inbox', async (req, res) => {
-  const { agentId, limit = 50, start = 0 } = req.query;
-  if (!agentId) return res.status(400).json({ error: 'agentId required' });
+  const { limit = 50, start = 0 } = req.query;
   try {
-    const { accessToken, accountId, apiDomain } = await getZohoToken(agentId);
+    const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
     const response = await axios.get(`${apiDomain}/api/accounts/${accountId}/messages/view`, {
       headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
       params:  { folderPath: 'Inbox', limit, start, sortBy: 'date', sortorder: 'desc' },
@@ -357,10 +456,9 @@ app.get('/api/emails/inbox', async (req, res) => {
 
 // ── 4. GET /api/emails/sent ───────────────────────────────────────────────────
 app.get('/api/emails/sent', async (req, res) => {
-  const { agentId, limit = 50, start = 0 } = req.query;
-  if (!agentId) return res.status(400).json({ error: 'agentId required' });
+  const { limit = 50, start = 0 } = req.query;
   try {
-    const { accessToken, accountId, apiDomain } = await getZohoToken(agentId);
+    const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
     const response = await axios.get(`${apiDomain}/api/accounts/${accountId}/messages/view`, {
       headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
       params:  { folderPath: 'Sent', limit, start, sortBy: 'date', sortorder: 'desc' },
@@ -374,12 +472,12 @@ app.get('/api/emails/sent', async (req, res) => {
 
 // ── 5. POST /api/emails/send ──────────────────────────────────────────────────
 app.post('/api/emails/send', async (req, res) => {
-  const { agentId, to, cc, subject, body, leadId } = req.body;
-  if (!agentId || !to || !subject) {
-    return res.status(400).json({ error: 'agentId, to, and subject are required' });
+  const { to, cc, subject, body, leadId } = req.body;
+  if (!to || !subject) {
+    return res.status(400).json({ error: 'to and subject are required' });
   }
   try {
-    const { accessToken, accountId, apiDomain } = await getZohoToken(agentId);
+    const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
     const sendRes = await axios.post(
       `${apiDomain}/api/accounts/${accountId}/messages`,
       { toAddress: to, ccAddress: cc || '', subject, content: body || '', mailFormat: 'plaintext' },
@@ -387,8 +485,7 @@ app.post('/api/emails/send', async (req, res) => {
     );
     const zohoMessageId = sendRes.data?.data?.messageId;
 
-    // Mirror into Supabase emails table for lead history
-    const { data: agentRow } = await supabase.from('agents').select('email').eq('id', agentId).single();
+    const { data: agentRow } = await supabase.from('agents').select('email').eq('id', req.userId).single();
     await supabase.from('emails').insert({
       lead_id:         leadId || null,
       from_email:      agentRow?.email || '',
@@ -411,10 +508,8 @@ app.post('/api/emails/send', async (req, res) => {
 
 // ── 6. GET /api/calendar/events ───────────────────────────────────────────────
 app.get('/api/calendar/events', async (req, res) => {
-  const { agentId } = req.query;
-  if (!agentId) return res.status(400).json({ error: 'agentId required' });
   try {
-    const { accessToken, calendarUid, calendarBase } = await getZohoToken(agentId);
+    const { accessToken, calendarUid, calendarBase } = await getZohoToken(req.userId);
     if (!calendarUid) return res.status(409).json({ error: 'No calendar found. Reconnect Zoho.' });
 
     const now    = new Date();
@@ -434,15 +529,14 @@ app.get('/api/calendar/events', async (req, res) => {
 
 // ── 7. POST /api/calendar/events ─────────────────────────────────────────────
 app.post('/api/calendar/events', async (req, res) => {
-  const { agentId, title, start, end, description, timezone = 'America/New_York' } = req.body;
-  if (!agentId || !title || !start || !end) {
-    return res.status(400).json({ error: 'agentId, title, start, and end are required' });
+  const { title, start, end, description, timezone = 'America/New_York' } = req.body;
+  if (!title || !start || !end) {
+    return res.status(400).json({ error: 'title, start, and end are required' });
   }
   try {
-    const { accessToken, calendarUid, calendarBase } = await getZohoToken(agentId);
+    const { accessToken, calendarUid, calendarBase } = await getZohoToken(req.userId);
     if (!calendarUid) return res.status(409).json({ error: 'No calendar found. Reconnect Zoho.' });
 
-    // Convert ISO datetime → Zoho format: YYYYMMDDTHHmmss+0000
     const toZohoTime = (iso) =>
       iso.replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '+0000').replace(/Z$/, '+0000');
 
@@ -466,10 +560,8 @@ app.post('/api/calendar/events', async (req, res) => {
 // ── 8. DELETE /api/calendar/events/:id ───────────────────────────────────────
 app.delete('/api/calendar/events/:id', async (req, res) => {
   const { id: eventId } = req.params;
-  const { agentId }     = req.query;
-  if (!agentId) return res.status(400).json({ error: 'agentId required' });
   try {
-    const { accessToken, calendarUid, calendarBase } = await getZohoToken(agentId);
+    const { accessToken, calendarUid, calendarBase } = await getZohoToken(req.userId);
     if (!calendarUid) return res.status(409).json({ error: 'No calendar found. Reconnect Zoho.' });
 
     await axios.delete(`${calendarBase}/api/v1/calendars/${calendarUid}/events/${eventId}`, {
@@ -485,7 +577,6 @@ app.delete('/api/calendar/events/:id', async (req, res) => {
 // ── POST /api/send-application ────────────────────────────────────────────────
 app.post('/api/send-application', async (req, res) => {
   const {
-    agentId,
     businessName, dba, businessAddress, businessStartDate, ein,
     ownerName, ownerSS, ownerDOB, ownerAddress, printName,
   } = req.body;
@@ -555,20 +646,7 @@ app.post('/api/send-application', async (req, res) => {
 </html>`;
 
   try {
-    console.log('[send-application] agentId from request body:', agentId);
-    if (!agentId) return res.status(400).json({ error: 'agentId required' });
-
-    const { data: tokenRow, error: tokenError } = await supabase
-      .from('zoho_tokens')
-      .select('id, account_id, api_domain, expires_at, access_token')
-      .eq('id', agentId)
-      .maybeSingle();
-    console.log('[send-application] zoho_tokens row:', tokenRow
-      ? { ...tokenRow, access_token: tokenRow.access_token ? tokenRow.access_token.slice(0, 12) + '…' : null }
-      : null);
-    console.log('[send-application] zoho_tokens error:', tokenError);
-
-    const { accessToken, accountId, apiDomain } = await getZohoToken(agentId);
+    const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
     const sendRes = await axios.post(
       `${apiDomain}/api/accounts/${accountId}/messages`,
       {

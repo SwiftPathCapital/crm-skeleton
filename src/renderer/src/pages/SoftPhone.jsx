@@ -323,9 +323,13 @@ export default function SoftPhone({ agent, visible, onClose }) {
     const optimistic = { id: `tmp-${Date.now()}`, body, direction: "outbound", sent_at: new Date().toISOString() };
     setMessages(prev => [...prev, optimistic]);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       await fetch(`${API_BASE}/sms`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
         body: JSON.stringify({ to: selectedConv.contact_phone, text: body }),
       });
     } catch (e) { console.error("[softphone] SMS send failed:", e); }
