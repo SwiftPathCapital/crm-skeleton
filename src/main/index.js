@@ -24,6 +24,11 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Grant microphone access so Telnyx WebRTC getUserMedia works in Electron
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+    callback(permission === 'media' || permission === 'microphone');
+  });
+
   // Allow all requests including localhost and WebRTC signaling
   session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
     callback({ requestHeaders: details.requestHeaders })

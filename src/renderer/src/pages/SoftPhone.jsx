@@ -214,14 +214,13 @@ export default function SoftPhone({ agent, visible, onClose }) {
 
   async function answerCall() {
     try {
+      // Pre-capture mic so it's ready when the SDK negotiates media
       localStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     } catch (err) {
-      console.warn("[answerCall] getUserMedia failed:", err);
+      console.error("[answerCall] getUserMedia failed — check mic permission:", err);
     }
     try {
-      callRef.current?.answer({
-        ...(localStreamRef.current ? { localStream: localStreamRef.current } : {}),
-      });
+      callRef.current?.answer();
     } catch (err) {
       console.error("[answerCall] answer() failed:", err);
     }
