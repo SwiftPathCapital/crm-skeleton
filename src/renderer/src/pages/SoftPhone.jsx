@@ -129,6 +129,13 @@ export default function SoftPhone({ agent, visible, onClose }) {
         console.log("[Telnyx] call object keys:", Object.keys(notification.call));
         console.log("[Telnyx] remoteStream:", notification.call.remoteStream);
         console.log("[Telnyx] localStream:", notification.call.localStream);
+        const localStream = notification.call.localStream;
+        if (localStream) {
+          localStream.getAudioTracks().forEach(track => {
+            console.log("[audio track]", track.label, "enabled:", track.enabled, "muted:", track.muted, "readyState:", track.readyState);
+            track.enabled = true;
+          });
+        }
         const remoteStream = notification.call.remoteStream;
         if (audioRef.current && remoteStream) {
           audioRef.current.srcObject = remoteStream;
@@ -195,6 +202,8 @@ export default function SoftPhone({ agent, visible, onClose }) {
       callerIdNumber:     agent?.did || "+17869460772",
       debug:              true,
       preferred_codecs:   ["OPUS", "PCMU"],
+      audio:              true,
+      video:              false,
       ...(localStream ? { localStream } : {}),
     });
   }
