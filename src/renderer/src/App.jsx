@@ -12,6 +12,7 @@ import SoftPhone from "./pages/SoftPhone";
 import CalendarPage from "./pages/CalendarPage";
 import NewApplication from "./pages/NewApplication";
 import Settings from "./pages/Settings";
+import Messaging from "./pages/Messaging";
 import Login from "./pages/Login";
 import { supabase } from "./lib/supabaseClient";
 import { AppProvider, useApp } from "./context/AppContext";
@@ -102,7 +103,7 @@ function AppShell() {
           .range(from, from + pageSize - 1);
 
         if (agent?.role === "agent") {
-          query = query.eq("assigned_to", userId);
+          query = query.or(`assigned_to.eq.${userId},assigned_to.is.null`);
         }
 
         const { data, error } = await query;
@@ -216,6 +217,10 @@ function AppShell() {
 
         <PageSlot active={activeView === "settings"} padded>
           <Settings />
+        </PageSlot>
+
+        <PageSlot active={activeView === "messaging"} padded>
+          <Messaging />
         </PageSlot>
       </main>
     </div>

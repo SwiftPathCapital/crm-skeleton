@@ -1,10 +1,12 @@
 // src/renderer/src/pages/MyLeads.jsx
 import React from "react";
 import LeadTable from "../components/LeadTable";
+import AnnouncementsBanner from "../components/AnnouncementsBanner";
 
 export default function MyLeads({ leads, onSaveLead, onRefresh, onOpenEmailClient }) {
   return (
     <div className="flex flex-col h-full">
+      <AnnouncementsBanner />
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-white text-2xl font-bold tracking-tight">My Leads</h1>

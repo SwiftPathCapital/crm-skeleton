@@ -1,6 +1,7 @@
 // src/components/LeadExpandedRow.jsx
 import React, { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
+import { useApp } from "../context/AppContext";
 
 function Field({ label, fieldKey, value, onChange, type = "text", fullWidth = false }) {
   return (
@@ -373,9 +374,22 @@ function EmailsTab({ lead, onOpenEmailClient }) {
 
 // ── MAIN EXPORT ──────────────────────────────────────────────────────────────
 export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
+  const { agent } = useApp();
+  const isAdmin = agent?.role === "admin";
   const [formData, setFormData] = useState({ ...lead });
   const [saved, setSaved] = useState(false);
   const [activeTab, setActiveTab] = useState("details");
+  const [agentsList, setAgentsList] = useState([]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    supabase
+      .from("agents")
+      .select("id, full_name")
+      .order("full_name")
+      .then(({ data }) => setAgentsList(data || []));
+  }, [isAdmin]);
+
   function handleChange(key, value) {
     setSaved(false);
     setFormData((prev) => ({ ...prev, [key]: value }));
@@ -492,6 +506,23 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
               ))}
             </select>
           </div>
+
+          {isAdmin && agentsList.length > 0 && (
+            <div className="col-span-2 flex flex-col gap-1">
+              <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider">Assign To Agent</label>
+              <select
+                value={formData.assigned_to ?? ""}
+                onChange={(e) => handleChange("assigned_to", e.target.value || null)}
+                className="w-full bg-[#0f1117] border border-[#1e2130] rounded-lg px-3 py-2 text-sm text-white
+                  focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+              >
+                <option value="">— Unassigned —</option>
+                {agentsList.map((a) => (
+                  <option key={a.id} value={a.id}>{a.full_name}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {lead.lead_type === "ucc" && <UCCFields data={formData} onChange={handleChange} />}
           {lead.lead_type === "trigger" && <TriggerFields data={formData} onChange={handleChange} />}

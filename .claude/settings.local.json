@@ -36,7 +36,9 @@
       "Bash(node -e \"require\\('./server/index.js'\\)\")",
       "Bash(timeout 3)",
       "Bash(node --check server/index.js)",
-      "Bash(railway *)"
+      "Bash(railway *)",
+      "Bash(Remove-Item *)",
+      "Bash(Select-Object -First 50 FullName)"
     ]
   }
 }
