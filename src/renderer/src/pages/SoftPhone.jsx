@@ -87,6 +87,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
   const timerRef         = useRef(null);
   const callStartRef     = useRef(null);  // Date when call went active
   const callDestRef      = useRef("");    // E164 destination dialled
+  const localStreamRef   = useRef(null);  // Mic stream captured before newCall()
   const [sipStatus, setSipStatus]             = useState("disconnected"); // disconnected | connecting | registered | failed
   const [callState, setCallState]             = useState(null);           // null | ringing_out | ringing_in | active
   const [incomingCallerId, setIncomingCallerId] = useState("");
@@ -128,10 +129,9 @@ export default function SoftPhone({ agent, visible, onClose }) {
         timerRef.current = setInterval(() => setCallSeconds(s => s + 1), 1000);
         console.log("[Telnyx] call object keys:", Object.keys(notification.call));
         console.log("[Telnyx] remoteStream:", notification.call.remoteStream);
-        console.log("[Telnyx] localStream:", notification.call.localStream);
-        const localStream = notification.call.localStream;
-        if (localStream) {
-          localStream.getAudioTracks().forEach(track => {
+        console.log("[Telnyx] localStream (ref):", localStreamRef.current);
+        if (localStreamRef.current) {
+          localStreamRef.current.getAudioTracks().forEach(track => {
             console.log("[audio track]", track.label, "enabled:", track.enabled, "muted:", track.muted, "readyState:", track.readyState);
             track.enabled = true;
           });
@@ -143,6 +143,11 @@ export default function SoftPhone({ agent, visible, onClose }) {
         }
       } else if (state === "destroy" || state === "hangup" || state === "done") {
         clearInterval(timerRef.current);
+        // Release microphone
+        if (localStreamRef.current) {
+          localStreamRef.current.getTracks().forEach(t => t.stop());
+          localStreamRef.current = null;
+        }
         // Save call record if the call was ever active
         if (callStartRef.current) {
           const duration = Math.round((Date.now() - callStartRef.current.getTime()) / 1000);
@@ -188,9 +193,9 @@ export default function SoftPhone({ agent, visible, onClose }) {
     if (!digits.startsWith("1")) digits = "1" + digits;
     const dest = "+" + digits;
 
-    let localStream;
     try {
-      localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      localStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      console.log("[makeCall] mic stream tracks:", localStreamRef.current.getAudioTracks().map(t => t.label));
     } catch (err) {
       console.warn("[makeCall] getUserMedia failed:", err);
     }
@@ -204,7 +209,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
       preferred_codecs:   ["OPUS", "PCMU"],
       audio:              true,
       video:              false,
-      ...(localStream ? { localStream } : {}),
+      ...(localStreamRef.current ? { localStream: localStreamRef.current } : {}),
     });
   }
 
@@ -216,6 +221,11 @@ export default function SoftPhone({ agent, visible, onClose }) {
 
   function hangUp() {
     clearInterval(timerRef.current);
+    // Release microphone
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(t => t.stop());
+      localStreamRef.current = null;
+    }
     // Save call record before clearing refs
     if (callStartRef.current) {
       const duration = Math.round((Date.now() - callStartRef.current.getTime()) / 1000);
