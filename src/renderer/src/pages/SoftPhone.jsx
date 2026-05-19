@@ -212,8 +212,19 @@ export default function SoftPhone({ agent, visible, onClose }) {
     });
   }
 
-  function answerCall() {
-    try { callRef.current?.answer(); } catch (_) {}
+  async function answerCall() {
+    try {
+      localStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    } catch (err) {
+      console.warn("[answerCall] getUserMedia failed:", err);
+    }
+    try {
+      callRef.current?.answer({
+        ...(localStreamRef.current ? { localStream: localStreamRef.current } : {}),
+      });
+    } catch (err) {
+      console.error("[answerCall] answer() failed:", err);
+    }
     setCallState("active");
     setIncomingCallerId("");
   }
