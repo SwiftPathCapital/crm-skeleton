@@ -1,0 +1,2 @@
+ALTER TABLE calls ADD COLUMN IF NOT EXISTS direction TEXT DEFAULT 'outbound';
+ALTER TABLE calls ADD COLUMN IF NOT EXISTS caller_phone TEXT;

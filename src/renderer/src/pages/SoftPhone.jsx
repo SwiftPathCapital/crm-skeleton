@@ -92,6 +92,8 @@ export default function SoftPhone({ agent, visible, onClose, dialTarget, onDialC
   const settingsRef           = useRef({ ringTimeout: 30, dispositions: ["Interested","Callback","Not Interested","No Answer","Wrong Number","DNC"] });
   const agentIdRef            = useRef(agent?.id);
   const activeClientIdRef     = useRef(null);
+  const callDirectionRef      = useRef("outbound");
+  const callerPhoneRef        = useRef(null);
   const recorderRef           = useRef(null);
   const chunksRef             = useRef([]);
   const recordingUploadRef    = useRef(null);
@@ -122,12 +124,24 @@ export default function SoftPhone({ agent, visible, onClose, dialTarget, onDialC
       console.log("[Telnyx] call state:", state, call.direction);
 
       if (state === "ringing" && call.direction === "inbound") {
-        setIncomingCallerId(call.options?.remoteCallerNumber || "Unknown");
+        const phone = call.options?.remoteCallerNumber || "";
+        setIncomingCallerId(phone || "Unknown");
         setCallState("ringing_in");
+        callDirectionRef.current = "inbound";
+        callerPhoneRef.current = phone;
+        if (phone) {
+          const stripped = phone.replace(/^\+1/, "");
+          supabase.from("clients").select("id")
+            .or(`phone.eq.${phone},phone.eq.${stripped},phone.eq.+1${stripped}`)
+            .maybeSingle()
+            .then(({ data }) => { if (data?.id) activeClientIdRef.current = data.id; });
+        }
       } else if (
         (state === "requesting" || state === "trying" || state === "ringing") &&
         call.direction === "outbound"
       ) {
+        callDirectionRef.current = "outbound";
+        callerPhoneRef.current = null;
         setCallState("ringing_out");
       } else if (state === "active") {
         if (ringTimerRef.current) { clearTimeout(ringTimerRef.current); ringTimerRef.current = null; }
@@ -264,14 +278,20 @@ export default function SoftPhone({ agent, visible, onClose, dialTarget, onDialC
     setCallWrapup(null);
     const recordingPath = recordingUploadRef.current ? await recordingUploadRef.current : null;
     recordingUploadRef.current = null;
+    const direction = callDirectionRef.current || "outbound";
+    const callerPhone = callerPhoneRef.current;
+    callerPhoneRef.current = null;
+    callDirectionRef.current = "outbound";
     const { error } = await supabase.from("calls").insert({
-      lead_phone:     dest,
+      lead_phone:     direction === "inbound" ? callerPhone : dest,
       agent_name:     agent?.full_name || null,
       duration,
       disposition:    disp,
       created_at:     createdAt,
       client_id:      clientId || null,
       recording_path: recordingPath || null,
+      direction,
+      caller_phone:   callerPhone || null,
     });
     if (error) console.warn("[calls] insert failed:", error.message);
     else loadCalls();

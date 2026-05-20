@@ -62,10 +62,18 @@ export default function AdminDashboard() {
       const { data } = await supabase
         .from("calls")
         .select("*")
-        .not("agent_name", "is", null)
         .order("created_at", { ascending: false })
         .limit(100);
-      setSoftphoneLogs(data || []);
+      const logs = data || [];
+      const paths = logs.filter(l => l.recording_path).map(l => l.recording_path);
+      let urlMap = {};
+      if (paths.length > 0) {
+        const { data: urlsData } = await supabase.storage
+          .from("call-recordings")
+          .createSignedUrls(paths, 3600);
+        (urlsData || []).forEach(u => { urlMap[u.path] = u.signedUrl; });
+      }
+      setSoftphoneLogs(logs.map(l => ({ ...l, recording_url: urlMap[l.recording_path] || null })));
     } finally {
       setLogsLoading(false);
     }
@@ -186,7 +194,7 @@ export default function AdminDashboard() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-[#0f1117] border-b border-[#1e2130]">
-                {["Date / Time", "Agent", "Lead Phone", "Duration", "Disposition", "Recording"].map((h) => (
+                {["Date / Time", "Agent", "Phone", "Dir", "Duration", "Disposition", "Recording"].map((h) => (
                   <th key={h} className="text-left text-[#4a5568] font-semibold text-xs uppercase tracking-wider px-4 py-3">{h}</th>
                 ))}
               </tr>
@@ -194,7 +202,7 @@ export default function AdminDashboard() {
             <tbody>
               {softphoneLogs.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center text-[#4a5568] text-sm py-8">
+                  <td colSpan={7} className="text-center text-[#4a5568] text-sm py-8">
                     {logsLoading ? "Loading…" : "No softphone call logs yet."}
                   </td>
                 </tr>
@@ -209,7 +217,12 @@ export default function AdminDashboard() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-white font-medium">{log.agent_name || "—"}</td>
-                  <td className="px-4 py-3 text-[#8892a4] font-mono text-xs">{log.lead_phone || "—"}</td>
+                  <td className="px-4 py-3 text-[#8892a4] font-mono text-xs">{log.lead_phone || log.caller_phone || "—"}</td>
+                  <td className="px-4 py-3">
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${log.direction === "inbound" ? "bg-blue-500/10 text-blue-400 border border-blue-500/20" : "bg-[#1e2130] text-[#8892a4]"}`}>
+                      {log.direction === "inbound" ? "In" : "Out"}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-[#8892a4] font-mono">
                     {log.duration != null ? formatDuration(log.duration) : "—"}
                   </td>
