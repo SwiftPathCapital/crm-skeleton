@@ -352,7 +352,8 @@ async function getZohoToken(agentId) {
     throw err;
   }
 
-  const needsRefresh = row.expires_at && Date.now() > row.expires_at - 300_000;
+  const expiresMs = row.expires_at ? new Date(row.expires_at).getTime() : null;
+  const needsRefresh = expiresMs && Date.now() > expiresMs - 300_000;
   if (needsRefresh) {
     const refreshRes = await axios.post(ZOHO_TOKEN_URL, null, {
       params: {
@@ -363,7 +364,7 @@ async function getZohoToken(agentId) {
       },
     });
     const { access_token, expires_in } = refreshRes.data;
-    const expires_at = Date.now() + (expires_in || 3600) * 1000;
+    const expires_at = new Date(Date.now() + (expires_in || 3600) * 1000).toISOString();
     await supabase.from('zoho_tokens').update({ access_token, expires_at }).eq('id', agentId);
     row.access_token = access_token;
     row.expires_at   = expires_at;
@@ -441,7 +442,7 @@ app.get('/auth/zoho/callback', async (req, res) => {
     const rawApiDomain = api_domain || 'https://www.zohoapis.com';
     const mailBase = rawApiDomain.replace('www.zohoapis', 'mail.zoho');
     const calBase  = rawApiDomain.replace('www.zohoapis', 'calendar.zoho');
-    const expires_at = Date.now() + (expires_in || 3600) * 1000;
+    const expires_at = new Date(Date.now() + (expires_in || 3600) * 1000).toISOString();
 
     console.log('[zoho/callback] api_domain from Zoho:', rawApiDomain);
     console.log('[zoho/callback] derived mailBase:', mailBase);
