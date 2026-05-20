@@ -503,7 +503,7 @@ app.get('/api/emails/inbox', async (req, res) => {
     const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
     const response = await axios.get(`${apiDomain}/api/accounts/${accountId}/messages/view`, {
       headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
-      params:  { folderPath: 'Inbox', limit, start, sortBy: 'date', sortorder: 'desc' },
+      params:  { folderPath: 'Inbox', limit: Number(limit), start: Number(start), sortby: 'date', sortorder: 'desc' },
     });
     res.json(response.data);
   } catch (err) {
@@ -519,7 +519,7 @@ app.get('/api/emails/sent', async (req, res) => {
     const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
     const response = await axios.get(`${apiDomain}/api/accounts/${accountId}/messages/view`, {
       headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
-      params:  { folderPath: 'Sent', limit, start, sortBy: 'date', sortorder: 'desc' },
+      params:  { folderPath: 'Sent', limit: Number(limit), start: Number(start), sortby: 'date', sortorder: 'desc' },
     });
     res.json(response.data);
   } catch (err) {
@@ -535,15 +535,16 @@ app.post('/api/emails/send', async (req, res) => {
     return res.status(400).json({ error: 'to and subject are required' });
   }
   try {
-    const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
+    const [{ accessToken, accountId, apiDomain }, { data: agentRow }] = await Promise.all([
+      getZohoToken(req.userId),
+      supabase.from('agents').select('email').eq('id', req.userId).single(),
+    ]);
     const sendRes = await axios.post(
       `${apiDomain}/api/accounts/${accountId}/messages`,
-      { toAddress: to, ccAddress: cc || '', subject, content: body || '', mailFormat: 'plaintext' },
+      { fromAddress: agentRow?.email, toAddress: to, ccAddress: cc || '', subject, content: body || '', mailFormat: 'plaintext' },
       { headers: { Authorization: `Zoho-oauthtoken ${accessToken}` } }
     );
     const zohoMessageId = sendRes.data?.data?.messageId;
-
-    const { data: agentRow } = await supabase.from('agents').select('email').eq('id', req.userId).single();
     await supabase.from('emails').insert({
       lead_id:         leadId || null,
       from_email:      agentRow?.email || '',
