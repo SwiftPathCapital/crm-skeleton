@@ -427,17 +427,25 @@ app.get('/auth/zoho/callback', async (req, res) => {
     const { access_token, refresh_token, expires_in, api_domain } = tokenRes.data;
     if (!access_token) throw new Error('Token exchange failed: ' + JSON.stringify(tokenRes.data));
 
-    const mailBase   = 'https://mail.zoho.com';
-    const calBase    = 'https://calendar.zoho.com';
+    // Derive correct regional mail/calendar base URLs from the api_domain Zoho returns.
+    // api_domain looks like "https://www.zohoapis.com" (or .eu, .in, .com.au, .jp).
+    // Mail API lives at mail.zoho.{tld}, calendar at calendar.zoho.{tld}.
+    const rawApiDomain = api_domain || 'https://www.zohoapis.com';
+    const mailBase = rawApiDomain.replace('www.zohoapis', 'mail.zoho');
+    const calBase  = rawApiDomain.replace('www.zohoapis', 'calendar.zoho');
     const expires_at = Date.now() + (expires_in || 3600) * 1000;
+
+    console.log('[zoho/callback] api_domain from Zoho:', rawApiDomain);
+    console.log('[zoho/callback] derived mailBase:', mailBase);
 
     const accountsUrl = `${mailBase}/api/accounts`;
     console.log('[zoho/callback] fetching accounts from:', accountsUrl);
     const accountsRes = await axios.get(accountsUrl, {
-      headers: { Authorization: `Bearer ${access_token}` },
+      headers: { Authorization: `Zoho-oauthtoken ${access_token}` },
     });
     console.log('[zoho/callback] accounts response status:', accountsRes.status);
     const accountId = accountsRes.data?.data?.[0]?.accountId;
+    if (!accountId) console.warn('[zoho/callback] accountId came back null — accounts response:', JSON.stringify(accountsRes.data));
 
     let calendarUid = null;
     try {
@@ -459,7 +467,7 @@ app.get('/auth/zoho/callback', async (req, res) => {
       api_domain:   mailBase,
     }, { onConflict: 'id' });
 
-    console.log(`[zoho/callback] saved token for agent ${agentId} — mail:${accountId} cal:${calendarUid}`);
+    console.log(`[zoho/callback] saved token for agent ${agentId} — mail:${accountId} cal:${calendarUid} domain:${mailBase}`);
 
     res.send(`
       <html><body style="font-family:sans-serif;background:#080b10;color:#c9a84c;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
