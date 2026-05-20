@@ -14,6 +14,7 @@ export default function AgentManagement() {
   const [editForm, setEditForm] = useState({ full_name: "", email: "", role: "agent", did: "", sip_username: "", sip_password: "" });
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState(null);
+  const [resetSent, setResetSent] = useState(false);
 
   useEffect(() => { fetchAgents(); }, []);
 
@@ -77,6 +78,17 @@ export default function AgentManagement() {
       sip_password: agent.sip_password || "",
     });
     setEditError(null);
+    setResetSent(false);
+  }
+
+  async function handleResetPassword() {
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(editAgent.email);
+      if (error) throw error;
+      setResetSent(true);
+    } catch (err) {
+      setEditError(err.message);
+    }
   }
 
   async function handleUpdateAgent(e) {
@@ -289,6 +301,20 @@ export default function AgentManagement() {
                   <p className="text-red-400 text-sm">{editError}</p>
                 </div>
               )}
+
+              {resetSent && (
+                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-4 py-3">
+                  <p className="text-emerald-400 text-sm">Password reset email sent to {editAgent.email}</p>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleResetPassword}
+                className="w-full py-2 bg-[#1e2130] border border-[#2d3748] text-[#8892a4] hover:text-white text-sm rounded-lg transition-colors"
+              >
+                Send Password Reset Email
+              </button>
 
               <div className="flex gap-3 pt-1">
                 <button
