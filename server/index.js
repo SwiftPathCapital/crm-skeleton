@@ -24,10 +24,17 @@ const ZOHO_SCOPES        = [
   'ZohoCalendar.calendar.READ',
 ].join(',');
 
+// Anon client — used only for verifying user JWTs in requireAuth
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL,
   process.env.VITE_SUPABASE_ANON_KEY,
   { realtime: { transport: ws } }
+);
+
+// Service-role client — bypasses RLS for server-side writes (webhooks, OAuth callbacks)
+const supabaseAdmin = createClient(
+  process.env.VITE_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY
 );
 
 const app = express();
@@ -457,7 +464,7 @@ app.get('/auth/zoho/callback', async (req, res) => {
       console.warn('[zoho/callback] calendar fetch skipped:', calErr.message);
     }
 
-    await supabase.from('zoho_tokens').upsert({
+    const { error: upsertError } = await supabaseAdmin.from('zoho_tokens').upsert({
       id:           agentId,
       access_token,
       refresh_token,
@@ -466,6 +473,8 @@ app.get('/auth/zoho/callback', async (req, res) => {
       calendar_uid: calendarUid,
       api_domain:   mailBase,
     }, { onConflict: 'id' });
+
+    if (upsertError) throw new Error('Failed to save token: ' + upsertError.message);
 
     console.log(`[zoho/callback] saved token for agent ${agentId} — mail:${accountId} cal:${calendarUid} domain:${mailBase}`);
 
