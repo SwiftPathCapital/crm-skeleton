@@ -241,6 +241,44 @@ app.post('/webhook/telnyx', verifyTelnyxSignature, async (req, res) => {
   const payload   = req.body?.data?.payload;
   if (!eventType || !payload) return;
 
+  // ── Inbound SMS ─────────────────────────────────────────────────────────────
+  if (eventType === 'message.received') {
+    const from = payload.from?.phone_number || payload.from || null;
+    const text = payload.text || '';
+    const receivedAt = payload.received_at || new Date().toISOString();
+    if (!from || !text) return;
+
+    // Find or create conversation for this number
+    let { data: conv } = await supabase
+      .from('sms_conversations')
+      .select('id, unread_count')
+      .eq('contact_phone', from)
+      .maybeSingle();
+
+    if (!conv) {
+      const { data: newConv } = await supabase
+        .from('sms_conversations')
+        .insert({ contact_phone: from, last_message: text, last_message_at: receivedAt, unread_count: 1 })
+        .select().single();
+      conv = newConv;
+    } else {
+      await supabase.from('sms_conversations')
+        .update({ last_message: text, last_message_at: receivedAt, unread_count: (conv.unread_count || 0) + 1 })
+        .eq('id', conv.id);
+    }
+
+    if (conv) {
+      await supabase.from('sms_messages').insert({
+        conversation_id: conv.id,
+        body: text,
+        direction: 'inbound',
+        sent_at: receivedAt,
+      });
+    }
+    return;
+  }
+
+  // ── Call events (require call_session_id) ───────────────────────────────────
   const sessionId = payload.call_session_id;
   if (!sessionId) return;
 

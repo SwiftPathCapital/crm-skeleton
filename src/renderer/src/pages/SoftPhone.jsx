@@ -45,7 +45,7 @@ function DirectionIcon({ direction }) {
 const W = 760;
 const H = 560;
 
-export default function SoftPhone({ agent, visible, onClose }) {
+export default function SoftPhone({ agent, visible, onClose, dialTarget, onDialConsumed }) {
   // ── Drag state ──────────────────────────────────────────────────────────────
   const [pos, setPos]   = useState({ x: Math.max(0, window.innerWidth  - W - 40), y: 60 });
   const dragging        = useRef(false);
@@ -88,6 +88,13 @@ export default function SoftPhone({ agent, visible, onClose }) {
   const callStartRef     = useRef(null);  // Date when call went active
   const callDestRef      = useRef("");    // E164 destination dialled
   const micConstraints   = useRef(null);  // Cached result of enumerateDevices()
+  const ringTimerRef          = useRef(null);
+  const settingsRef           = useRef({ ringTimeout: 30, dispositions: ["Interested","Callback","Not Interested","No Answer","Wrong Number","DNC"] });
+  const agentIdRef            = useRef(agent?.id);
+  const activeClientIdRef     = useRef(null);
+  const recorderRef           = useRef(null);
+  const chunksRef             = useRef([]);
+  const recordingUploadRef    = useRef(null);
   const [sipStatus, setSipStatus]             = useState("disconnected"); // disconnected | connecting | registered | failed
   const [callState, setCallState]             = useState(null);           // null | ringing_out | ringing_in | active
   const [incomingCallerId, setIncomingCallerId] = useState("");
@@ -123,6 +130,7 @@ export default function SoftPhone({ agent, visible, onClose }) {
       ) {
         setCallState("ringing_out");
       } else if (state === "active") {
+        if (ringTimerRef.current) { clearTimeout(ringTimerRef.current); ringTimerRef.current = null; }
         callStartRef.current = new Date();
         setCallState("active");
         setCallSeconds(0);
@@ -133,20 +141,19 @@ export default function SoftPhone({ agent, visible, onClose }) {
           audioRef.current.srcObject = remoteStream;
           audioRef.current.play().catch(console.warn);
         }
+        startRecording(remoteStream);
       } else if (state === "destroy" || state === "hangup" || state === "done") {
+        if (ringTimerRef.current) { clearTimeout(ringTimerRef.current); ringTimerRef.current = null; }
         clearInterval(timerRef.current);
         if (audioRef.current) audioRef.current.srcObject = null;
-        // Save call record if the call was ever active
+        stopRecordingAndUpload();
         if (callStartRef.current) {
           const duration = Math.round((Date.now() - callStartRef.current.getTime()) / 1000);
-          supabase.from("calls").insert({
-            lead_phone:  callDestRef.current || call.options?.destinationNumber || null,
-            agent_name:  agent?.full_name || null,
-            duration,
-            disposition: "completed",
-            created_at:  callStartRef.current.toISOString(),
-          }).then(({ error }) => { if (error) console.warn("[calls] insert failed:", error.message); else loadCalls(); });
+          const dest = callDestRef.current || call.options?.destinationNumber || null;
+          setCallWrapup({ duration, dest, createdAt: callStartRef.current.toISOString() });
           callStartRef.current = null;
+        } else {
+          activeClientIdRef.current = null;
         }
         callDestRef.current = "";
         setCallState(null);
@@ -207,6 +214,10 @@ export default function SoftPhone({ agent, visible, onClose }) {
         audio:              audioConstraints,
         video:              false,
       });
+      ringTimerRef.current = setTimeout(() => {
+        try { callRef.current?.hangup(); } catch (_) {}
+        ringTimerRef.current = null;
+      }, settingsRef.current.ringTimeout * 1000);
     } catch (err) {
       console.error("[makeCall] newCall() failed:", err);
       callDestRef.current = "";
@@ -225,20 +236,17 @@ export default function SoftPhone({ agent, visible, onClose }) {
   }
 
   function hangUp() {
+    if (ringTimerRef.current) { clearTimeout(ringTimerRef.current); ringTimerRef.current = null; }
     clearInterval(timerRef.current);
     if (audioRef.current) audioRef.current.srcObject = null;
-    // Save call record before clearing refs
+    stopRecordingAndUpload();
     if (callStartRef.current) {
       const duration = Math.round((Date.now() - callStartRef.current.getTime()) / 1000);
-      supabase.from("calls").insert({
-        lead_phone:  callDestRef.current || null,
-        agent_name:  agent?.full_name || null,
-        duration,
-        disposition: "completed",
-        created_at:  callStartRef.current.toISOString(),
-      }).then(({ error }) => { if (error) console.warn("[calls] insert failed:", error.message); else loadCalls(); });
+      setCallWrapup({ duration, dest: callDestRef.current || null, createdAt: callStartRef.current.toISOString() });
+      callStartRef.current = null;
+    } else {
+      activeClientIdRef.current = null;
     }
-    callStartRef.current = null;
     callDestRef.current = "";
     try { callRef.current?.hangup(); } catch (_) {}
     setCallState(null);
@@ -246,6 +254,57 @@ export default function SoftPhone({ agent, visible, onClose }) {
     setIsMuted(false);
     setCallSeconds(0);
     callRef.current = null;
+  }
+
+  async function saveDisposition(disp) {
+    if (!callWrapup) return;
+    const { duration, dest, createdAt } = callWrapup;
+    const clientId = activeClientIdRef.current;
+    activeClientIdRef.current = null;
+    setCallWrapup(null);
+    const recordingPath = recordingUploadRef.current ? await recordingUploadRef.current : null;
+    recordingUploadRef.current = null;
+    const { error } = await supabase.from("calls").insert({
+      lead_phone:     dest,
+      agent_name:     agent?.full_name || null,
+      duration,
+      disposition:    disp,
+      created_at:     createdAt,
+      client_id:      clientId || null,
+      recording_path: recordingPath || null,
+    });
+    if (error) console.warn("[calls] insert failed:", error.message);
+    else loadCalls();
+  }
+
+  function startRecording(stream) {
+    if (!stream) return;
+    chunksRef.current = [];
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+    try {
+      const recorder = new MediaRecorder(stream, { mimeType });
+      recorder.ondataavailable = (e) => { if (e.data?.size > 0) chunksRef.current.push(e.data); };
+      recorder.start(1000);
+      recorderRef.current = recorder;
+    } catch (err) { console.warn('[recording] start failed:', err); }
+  }
+
+  function stopRecordingAndUpload() {
+    const recorder = recorderRef.current;
+    if (!recorder || recorder.state === 'inactive') return;
+    recorderRef.current = null;
+    recordingUploadRef.current = new Promise((resolve) => {
+      recorder.onstop = async () => {
+        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        chunksRef.current = [];
+        if (blob.size < 1000) { resolve(null); return; }
+        const path = `${agentIdRef.current ?? 'anon'}/${Date.now()}.webm`;
+        const { error } = await supabase.storage.from('call-recordings').upload(path, blob, { contentType: 'audio/webm' });
+        if (error) { console.warn('[recording] upload failed:', error.message); resolve(null); return; }
+        resolve(path);
+      };
+      try { recorder.stop(); } catch (_) { resolve(null); }
+    });
   }
 
   function toggleMute() {
@@ -278,16 +337,59 @@ export default function SoftPhone({ agent, visible, onClose }) {
   const [newTo, setNewTo]                 = useState("");
   const [newName, setNewName]             = useState("");
   const messagesEndRef                    = useRef(null);
+  const selectedConvRef                   = useRef(null);
+  const [callWrapup, setCallWrapup]       = useState(null);
+  const [dispositions, setDispositions]   = useState(settingsRef.current.dispositions);
+
+  useEffect(() => { agentIdRef.current = agent?.id; }, [agent?.id]);
+
+  useEffect(() => {
+    if (!dialTarget) return;
+    setDialInput(dialTarget.phone || "");
+    activeClientIdRef.current = dialTarget.clientId || null;
+    onDialConsumed?.();
+  }, [dialTarget]);
 
   useEffect(() => { loadConversations(); loadCalls(); }, []);
 
   useEffect(() => {
+    selectedConvRef.current = selectedConv;
     if (selectedConv) loadMessages(selectedConv.id);
   }, [selectedConv?.id]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Real-time inbound SMS
+  useEffect(() => {
+    const channel = supabase.channel("inbound-sms")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "sms_messages", filter: "direction=eq.inbound" },
+        (payload) => {
+          loadConversations();
+          if (selectedConvRef.current?.id === payload.new.conversation_id) {
+            setMessages(prev => [...prev, payload.new]);
+          }
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  useEffect(() => {
+    supabase.from("settings").select("key,value").in("key", ["ring_timeout","disposition_options"])
+      .then(({ data }) => {
+        if (!data) return;
+        const byKey = Object.fromEntries(data.map(r => [r.key, r.value]));
+        if (byKey.ring_timeout) settingsRef.current.ringTimeout = parseInt(byKey.ring_timeout, 10) || 30;
+        if (byKey.disposition_options) {
+          try {
+            const opts = JSON.parse(byKey.disposition_options);
+            if (Array.isArray(opts) && opts.length) { settingsRef.current.dispositions = opts; setDispositions(opts); }
+          } catch {}
+        }
+      });
+  }, []);
 
   async function loadCalls() {
     const { data, error } = await supabase
@@ -463,8 +565,35 @@ export default function SoftPhone({ agent, visible, onClose }) {
             )}
           </div>
 
-          {/* Active call panel OR dialpad */}
-          {(callState === "active" || callState === "ringing_out") ? (
+          {/* Disposition picker, active call panel, or dialpad */}
+          {callWrapup ? (
+            <div style={{ padding:"14px", display:"flex", flexDirection:"column", gap:10 }}>
+              <div style={{ textAlign:"center" }}>
+                <div style={{ fontSize:13, fontWeight:700, color:"#1e293b", marginBottom:4 }}>Call Ended</div>
+                <div style={{ fontSize:11, color:"#94a3b8" }}>{callWrapup.dest || "Unknown"} · {formatDuration(callWrapup.duration)}</div>
+              </div>
+              <div style={{ fontSize:11, fontWeight:600, color:"#64748b", textAlign:"center" }}>Select Disposition</div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
+                {dispositions.map(disp => (
+                  <button
+                    key={disp}
+                    onClick={() => saveDisposition(disp)}
+                    style={{ padding:"9px 6px", borderRadius:8, border:"1px solid #e2e8f0", background:"#f8fafc", color:"#1e293b", fontSize:11, fontWeight:600, cursor:"pointer", lineHeight:1.3 }}
+                    onMouseEnter={e => { e.currentTarget.style.background="#eff6ff"; e.currentTarget.style.borderColor="#3b82f6"; e.currentTarget.style.color="#3b82f6"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background="#f8fafc"; e.currentTarget.style.borderColor="#e2e8f0"; e.currentTarget.style.color="#1e293b"; }}
+                  >
+                    {disp}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => saveDisposition("No Disposition")}
+                style={{ width:"100%", padding:"8px 0", borderRadius:8, border:"1px solid #e2e8f0", background:"transparent", color:"#94a3b8", fontSize:11, fontWeight:500, cursor:"pointer" }}
+              >
+                Skip
+              </button>
+            </div>
+          ) : (callState === "active" || callState === "ringing_out") ? (
             <div style={{ padding:"16px 14px", display:"flex", flexDirection:"column", alignItems:"center", gap:14 }}>
               <div style={{ width:48, height:48, borderRadius:"50%", background: callState === "active" ? "linear-gradient(135deg,#22c55e,#16a34a)" : "linear-gradient(135deg,#f59e0b,#d97706)", display:"flex", alignItems:"center", justifyContent:"center" }}>
                 <svg width={20} height={20} viewBox="0 0 24 24" fill="#fff"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg>
@@ -578,15 +707,21 @@ export default function SoftPhone({ agent, visible, onClose }) {
           {/* Tab bar */}
           <div style={{ background:"#fff", borderBottom:"1px solid #e2e8f0", padding:"0 16px", display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
             <div style={{ display:"flex" }}>
-              {["messages","history"].map(tab => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  style={{ padding:"12px 16px", background:"none", border:"none", borderBottom: activeTab===tab ? "2px solid #3b82f6" : "2px solid transparent", cursor:"pointer", fontSize:12, fontWeight: activeTab===tab ? 600 : 500, color: activeTab===tab ? "#3b82f6" : "#94a3b8", transition:"all 0.15s", marginBottom:-1 }}
-                >
-                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                </button>
-              ))}
+              {["messages","history"].map(tab => {
+                const totalUnread = tab === "messages" ? conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0) : 0;
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    style={{ padding:"12px 16px", background:"none", border:"none", borderBottom: activeTab===tab ? "2px solid #3b82f6" : "2px solid transparent", cursor:"pointer", fontSize:12, fontWeight: activeTab===tab ? 600 : 500, color: activeTab===tab ? "#3b82f6" : "#94a3b8", transition:"all 0.15s", marginBottom:-1, display:"flex", alignItems:"center", gap:5 }}
+                  >
+                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                    {totalUnread > 0 && (
+                      <span style={{ background:"#3b82f6", color:"#fff", borderRadius:10, padding:"1px 5px", fontSize:9, fontWeight:700, lineHeight:1.5 }}>{totalUnread}</span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
             <button
               onClick={() => setShowNewMsg(true)}
@@ -611,7 +746,14 @@ export default function SoftPhone({ agent, visible, onClose }) {
                 {conversations.map(conv => (
                   <div
                     key={conv.id}
-                    onClick={() => setSelectedConv(conv)}
+                    onClick={() => {
+                      setSelectedConv(conv);
+                      if (conv.unread_count > 0) {
+                        supabase.from("sms_conversations").update({ unread_count: 0 }).eq("id", conv.id).then(() =>
+                          setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, unread_count: 0 } : c))
+                        );
+                      }
+                    }}
                     style={{ display:"flex", alignItems:"center", gap:9, padding:"11px 12px", cursor:"pointer", background: selectedConv?.id===conv.id ? "#eff6ff" : "transparent", borderLeft: selectedConv?.id===conv.id ? "3px solid #3b82f6" : "3px solid transparent", transition:"all 0.1s" }}
                     onMouseEnter={e => { if (selectedConv?.id !== conv.id) e.currentTarget.style.background="#f8fafc"; }}
                     onMouseLeave={e => { if (selectedConv?.id !== conv.id) e.currentTarget.style.background="transparent"; }}

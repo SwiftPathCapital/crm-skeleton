@@ -82,6 +82,7 @@ function AppShell() {
   const [activeView,       setActiveView]       = useState("my-leads");
   const [emailClientProps, setEmailClientProps] = useState({});
   const [softphoneOpen,    setSoftphoneOpen]    = useState(false);
+  const [softphoneDial,    setSoftphoneDial]    = useState(null); // { phone, clientId }
   const [leads,            setLeads]            = useState([]);
   const [leadsLoading,     setLeadsLoading]     = useState(false);
 
@@ -135,6 +136,11 @@ function AppShell() {
     }
   }
 
+  function dialFromRecord(phone, clientId) {
+    setSoftphoneDial({ phone, clientId });
+    setSoftphoneOpen(true);
+  }
+
   function openEmailClient(props = {}) {
     setEmailClientProps(props);
     setActiveView("email-client");
@@ -163,7 +169,13 @@ function AppShell() {
         agent={agent}
       />
 
-      <SoftPhone agent={agent} visible={softphoneOpen} onClose={() => setSoftphoneOpen(false)} />
+      <SoftPhone
+        agent={agent}
+        visible={softphoneOpen}
+        onClose={() => setSoftphoneOpen(false)}
+        dialTarget={softphoneDial}
+        onDialConsumed={() => setSoftphoneDial(null)}
+      />
 
       {/* All page views are always mounted; only the active one is visible.
           This keeps email sessions, softphone state, and other long-lived
@@ -207,7 +219,7 @@ function AppShell() {
         </PageSlot>
 
         <PageSlot active={activeView === "clients"} padded>
-          <Clients agent={agent} />
+          <Clients agent={agent} onDial={dialFromRecord} />
         </PageSlot>
 
         <PageSlot active={activeView === "calendar"} padded>

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
 
 const EMPTY_CLIENT = {
-  contact_name: "", business_name: "",
+  contact_name: "", business_name: "", phone: "",
   funded_amount: "", funding_date: "",
   assigned_agent_id: "", notes: [], docs: [],
 };
@@ -13,7 +13,7 @@ function maskPhone(phone) {
   return str.length > 2 ? str.slice(0, -2) + "••" : "••";
 }
 
-export default function Clients({ agent }) {
+export default function Clients({ agent, onDial }) {
   const isAdmin = agent?.role === "admin";
 
   const [clients, setClients]   = useState([]);
@@ -50,7 +50,7 @@ export default function Clients({ agent }) {
   function openClient(client) {
     setSelected(client);
     setIsNew(false);
-    setForm({ ...client, funded_amount: client.funded_amount ?? "", funding_date: client.funding_date ?? "" });
+    setForm({ ...EMPTY_CLIENT, ...client, funded_amount: client.funded_amount ?? "", funding_date: client.funding_date ?? "" });
     setNewNote("");
   }
 
@@ -92,6 +92,7 @@ export default function Clients({ agent }) {
       const payload = {
         contact_name:      form.contact_name,
         business_name:     form.business_name,
+        phone:             form.phone || null,
         funded_amount:     form.funded_amount ? parseFloat(form.funded_amount) : null,
         funding_date:      form.funding_date  || null,
         assigned_agent_id: form.assigned_agent_id || null,
@@ -170,6 +171,7 @@ export default function Clients({ agent }) {
                 agentName={agentName}
                 onClick={isAdmin ? () => openClient(client) : undefined}
                 phoneDisplay={client.phone ? (isAdmin ? client.phone : maskPhone(client.phone)) : null}
+                onDial={client.phone && onDial ? () => onDial(client.phone, client.id) : undefined}
               />
             ))}
           </div>
@@ -192,6 +194,8 @@ export default function Clients({ agent }) {
           onClose={closeModal}
           saving={saving}
           hasExistingId={!!selected}
+          clientId={selected?.id || null}
+          onDial={onDial}
         />
       )}
     </div>
@@ -200,16 +204,15 @@ export default function Clients({ agent }) {
 
 // ── Client card ───────────────────────────────────────────────────────────────
 
-function ClientCard({ client, agentName, onClick, phoneDisplay }) {
+function ClientCard({ client, agentName, onClick, phoneDisplay, onDial }) {
   const amount    = client.funded_amount ? "$" + Number(client.funded_amount).toLocaleString() : null;
   const docCount  = (client.docs  || []).length;
   const noteCount = (client.notes || []).length;
 
   return (
-    <button
+    <div
       onClick={onClick}
-      disabled={!onClick}
-      className="text-left bg-[#0d1117] border border-[#1e2130] rounded-xl p-5 hover:border-[#c9a84c]/30 hover:bg-[#111520] transition-all group disabled:cursor-default disabled:hover:border-[#1e2130] disabled:hover:bg-[#0d1117]"
+      className={`text-left bg-[#0d1117] border border-[#1e2130] rounded-xl p-5 hover:border-[#c9a84c]/30 hover:bg-[#111520] transition-all group ${onClick ? "cursor-pointer" : "cursor-default hover:border-[#1e2130] hover:bg-[#0d1117]"}`}
     >
       <div className="flex items-start justify-between mb-3">
         <div className="min-w-0 flex-1">
@@ -251,15 +254,46 @@ function ClientCard({ client, agentName, onClick, phoneDisplay }) {
       <div className="flex items-center gap-3 mt-3 pt-3 border-t border-[#1e2130]">
         <span className="text-[10px] text-[#2d3748]">{noteCount} note{noteCount !== 1 ? "s" : ""}</span>
         <span className="text-[10px] text-[#2d3748]">{docCount} doc{docCount !== 1 ? "s" : ""}</span>
+        {onDial && (
+          <button
+            onClick={e => { e.stopPropagation(); onDial(); }}
+            className="ml-auto flex items-center gap-1 text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-md hover:bg-emerald-500/20 transition-colors"
+          >
+            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
+            </svg>
+            Call
+          </button>
+        )}
       </div>
-    </button>
+    </div>
   );
 }
 
 // ── Drawer ────────────────────────────────────────────────────────────────────
 
-function ClientDrawer({ form, setForm, isNew, agents, newNote, setNewNote, onAddNote, onFileUpload, fileRef, onSave, onClose, saving, hasExistingId }) {
+function ClientDrawer({ form, setForm, isNew, agents, newNote, setNewNote, onAddNote, onFileUpload, fileRef, onSave, onClose, saving, hasExistingId, clientId, onDial }) {
   const f = (key, val) => setForm(p => ({ ...p, [key]: val }));
+  const [recordings, setRecordings]   = useState([]);
+  const [recUrls, setRecUrls]         = useState({});
+
+  useEffect(() => {
+    if (!clientId) return;
+    supabase.from("calls")
+      .select("id, created_at, duration, disposition, recording_path")
+      .eq("client_id", clientId)
+      .not("recording_path", "is", null)
+      .order("created_at", { ascending: false })
+      .then(({ data }) => setRecordings(data || []));
+  }, [clientId]);
+
+  useEffect(() => {
+    recordings.forEach(async (rec) => {
+      if (!rec.recording_path || recUrls[rec.recording_path]) return;
+      const { data } = await supabase.storage.from("call-recordings").createSignedUrl(rec.recording_path, 3600);
+      if (data?.signedUrl) setRecUrls(prev => ({ ...prev, [rec.recording_path]: data.signedUrl }));
+    });
+  }, [recordings]);
 
   return (
     <div className="fixed inset-0 z-50 flex" onClick={onClose}>
@@ -270,17 +304,31 @@ function ClientDrawer({ form, setForm, isNew, agents, newNote, setNewNote, onAdd
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#1e2130] flex-shrink-0">
           <h2 className="text-white font-semibold">{isNew ? "Add Client" : "Edit Client"}</h2>
-          <button onClick={onClose} className="text-[#4a5568] hover:text-white transition-colors">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-3">
+            {!isNew && form.phone && onDial && (
+              <button
+                onClick={() => onDial(form.phone, clientId)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 text-emerald-400 text-xs font-semibold rounded-lg hover:bg-emerald-500/20 transition-colors border border-emerald-500/20"
+              >
+                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
+                </svg>
+                Call Client
+              </button>
+            )}
+            <button onClick={onClose} className="text-[#4a5568] hover:text-white transition-colors">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
           <DrawerSection title="Client Info">
             <DrawerField label="Contact Name" value={form.contact_name} onChange={v => f("contact_name", v)} />
             <DrawerField label="Business Name" value={form.business_name} onChange={v => f("business_name", v)} />
+            <DrawerField label="Phone" value={form.phone || ""} onChange={v => f("phone", v)} placeholder="+1 (555) 000-0000" />
           </DrawerSection>
 
           <DrawerSection title="Funding">
@@ -343,6 +391,29 @@ function ClientDrawer({ form, setForm, isNew, agents, newNote, setNewNote, onAdd
               </button>
             </DrawerSection>
           )}
+
+          {hasExistingId && recordings.length > 0 && (
+            <DrawerSection title={`Recordings (${recordings.length})`}>
+              <div className="space-y-3">
+                {recordings.map(rec => (
+                  <div key={rec.id} className="bg-[#080b10] border border-[#1e2130] rounded-lg p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[#8892a4] text-xs">{new Date(rec.created_at).toLocaleString()}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-emerald-400 font-medium capitalize">{rec.disposition}</span>
+                        <span className="text-[10px] text-[#4a5568]">{rec.duration}s</span>
+                      </div>
+                    </div>
+                    {recUrls[rec.recording_path] ? (
+                      <audio controls src={recUrls[rec.recording_path]} className="w-full" style={{ height: 32, accentColor: "#c9a84c" }} />
+                    ) : (
+                      <div className="text-[10px] text-[#4a5568] animate-pulse">Loading…</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </DrawerSection>
+          )}
         </div>
 
         <div className="px-6 py-4 border-t border-[#1e2130] flex gap-3 flex-shrink-0">
@@ -373,7 +444,7 @@ function DrawerLabel({ children }) {
   return <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider block mb-1.5">{children}</label>;
 }
 
-function DrawerField({ label, value, onChange, type = "text" }) {
+function DrawerField({ label, value, onChange, type = "text", placeholder }) {
   return (
     <div>
       <DrawerLabel>{label}</DrawerLabel>
@@ -381,6 +452,7 @@ function DrawerField({ label, value, onChange, type = "text" }) {
         type={type}
         value={value ?? ""}
         onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
         className="w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a84c]/40 transition-colors"
       />
     </div>
