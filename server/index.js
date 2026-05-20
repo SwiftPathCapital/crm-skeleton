@@ -34,7 +34,8 @@ const supabase = createClient(
 // Service-role client — bypasses RLS for server-side writes (webhooks, OAuth callbacks)
 const supabaseAdmin = createClient(
   process.env.VITE_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY,
+  { realtime: { transport: ws } }
 );
 
 const app = express();
