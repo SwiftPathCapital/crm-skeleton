@@ -390,6 +390,7 @@ app.get('/auth/zoho', (req, res) => {
     scope:         ZOHO_SCOPES,
     redirect_uri:  ZOHO_REDIRECT_URI,
     access_type:   'offline',
+    prompt:        'consent',
     state:         buildOAuthState(agentId),
   });
   res.redirect(`${ZOHO_AUTH_URL}?${params}`);
