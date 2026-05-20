@@ -338,7 +338,7 @@ async function getZohoToken(agentId) {
 
   const { data: row, error } = await supabase
     .from('zoho_tokens')
-    .select('access_token, refresh_token, expires_at, account_id, calendar_uid, api_domain')
+    .select('access_token, refresh_token, expires_at, account_id, calendar_uid, api_domain, from_email')
     .eq('id', agentId)
     .maybeSingle();
 
@@ -375,6 +375,7 @@ async function getZohoToken(agentId) {
     accessToken:  row.access_token,
     accountId:    row.account_id,
     calendarUid:  row.calendar_uid,
+    fromEmail:    row.from_email,
     apiDomain,
     calendarBase: apiDomain.replace('mail.', 'calendar.'),
   };
@@ -454,8 +455,13 @@ app.get('/auth/zoho/callback', async (req, res) => {
       headers: { Authorization: `Zoho-oauthtoken ${access_token}` },
     });
     console.log('[zoho/callback] accounts response status:', accountsRes.status);
-    const accountId = accountsRes.data?.data?.[0]?.accountId;
+    const accountData = accountsRes.data?.data?.[0];
+    const accountId = accountData?.accountId;
+    const fromEmail = accountData?.emailAddress?.find(e => e.isPrimary)?.mailId
+                   || accountData?.emailAddress?.[0]?.mailId
+                   || null;
     if (!accountId) console.warn('[zoho/callback] accountId came back null — accounts response:', JSON.stringify(accountsRes.data));
+    console.log('[zoho/callback] fromEmail:', fromEmail);
 
     let calendarUid = null;
     try {
@@ -475,6 +481,7 @@ app.get('/auth/zoho/callback', async (req, res) => {
       account_id:   accountId,
       calendar_uid: calendarUid,
       api_domain:   mailBase,
+      from_email:   fromEmail,
     }, { onConflict: 'id' });
 
     if (upsertError) throw new Error('Failed to save token: ' + upsertError.message);
@@ -503,7 +510,7 @@ app.get('/api/emails/inbox', async (req, res) => {
     const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
     const response = await axios.get(`${apiDomain}/api/accounts/${accountId}/messages/view`, {
       headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
-      params:  { folderPath: 'Inbox', limit: Number(limit), start: Number(start), sortby: 'date', sortorder: 'desc' },
+      params:  { folderPath: 'Inbox', limit: Number(limit), start: Number(start) },
     });
     res.json(response.data);
   } catch (err) {
@@ -519,7 +526,7 @@ app.get('/api/emails/sent', async (req, res) => {
     const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
     const response = await axios.get(`${apiDomain}/api/accounts/${accountId}/messages/view`, {
       headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
-      params:  { folderPath: 'Sent', limit: Number(limit), start: Number(start), sortby: 'date', sortorder: 'desc' },
+      params:  { folderPath: 'Sent', limit: Number(limit), start: Number(start) },
     });
     res.json(response.data);
   } catch (err) {
@@ -535,13 +542,13 @@ app.post('/api/emails/send', async (req, res) => {
     return res.status(400).json({ error: 'to and subject are required' });
   }
   try {
-    const [{ accessToken, accountId, apiDomain }, { data: agentRow }] = await Promise.all([
+    const [{ accessToken, accountId, apiDomain, fromEmail }, { data: agentRow }] = await Promise.all([
       getZohoToken(req.userId),
       supabase.from('agents').select('email').eq('id', req.userId).single(),
     ]);
     const sendRes = await axios.post(
       `${apiDomain}/api/accounts/${accountId}/messages`,
-      { fromAddress: agentRow?.email, toAddress: to, ccAddress: cc || '', subject, content: body || '', mailFormat: 'plaintext' },
+      { fromAddress: fromEmail || agentRow?.email, toAddress: to, ccAddress: cc || '', subject, content: body || '', mailFormat: 'plaintext' },
       { headers: { Authorization: `Zoho-oauthtoken ${accessToken}` } }
     );
     const zohoMessageId = sendRes.data?.data?.messageId;
