@@ -36,5 +36,13 @@ export default defineConfig({
       }
     },
     plugins: [react()],
+    server: {
+      proxy: {
+        '/api':     'http://localhost:3001',
+        '/sms':     'http://localhost:3001',
+        '/auth':    'http://localhost:3001',
+        '/webhook': 'http://localhost:3001',
+      }
+    },
   },
 })
