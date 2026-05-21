@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
+import { useApp } from "../context/AppContext";
+
+const API_BASE =
+  typeof window !== "undefined" && window.location?.protocol === "file:"
+    ? "http://localhost:3001"
+    : "";
 
 const STAGES = [
   { id: "new_lead",     label: "New Lead",     bg: "bg-blue-500/10 border-blue-500/20",       dot: "bg-blue-400",    text: "text-blue-400" },
@@ -17,14 +23,17 @@ const EMPTY_DEAL = {
 };
 
 export default function DealPipeline({ agent }) {
-  const [deals, setDeals]       = useState([]);
-  const [agents, setAgents]     = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [selected, setSelected] = useState(null);
-  const [isNew, setIsNew]       = useState(false);
-  const [form, setForm]         = useState(EMPTY_DEAL);
-  const [newNote, setNewNote]   = useState("");
-  const [saving, setSaving]     = useState(false);
+  const { getAuthToken } = useApp();
+  const [deals, setDeals]           = useState([]);
+  const [agents, setAgents]         = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [selected, setSelected]     = useState(null);
+  const [isNew, setIsNew]           = useState(false);
+  const [form, setForm]             = useState(EMPTY_DEAL);
+  const [newNote, setNewNote]       = useState("");
+  const [saving, setSaving]         = useState(false);
+  const [dragOverStage, setDragOverStage] = useState(null);
+  const draggingId = useRef(null);
   const fileRef = useRef();
 
   useEffect(() => {
@@ -84,6 +93,37 @@ export default function DealPipeline({ agent }) {
       setForm(f => ({ ...f, docs: [...(f.docs || []), { name: file.name, url: publicUrl }] }));
     }
     e.target.value = "";
+  }
+
+  async function handleDrop(stageId) {
+    const id = draggingId.current;
+    if (!id) return;
+    const deal = deals.find(d => d.id === id);
+    if (!deal || deal.stage === stageId) return;
+
+    const wasNotFunded = deal.stage !== "funded";
+    const nowFunded    = stageId === "funded";
+
+    setDeals(prev => prev.map(d => d.id === id ? { ...d, stage: stageId } : d));
+
+    await supabase.from("deals").update({ stage: stageId, updated_at: new Date().toISOString() }).eq("id", id);
+
+    if (nowFunded && wasNotFunded) {
+      const { data: existing } = await supabase.from("clients").select("id").eq("deal_id", id).maybeSingle();
+      if (!existing) {
+        await supabase.from("clients").insert({
+          contact_name:      deal.contact_name,
+          business_name:     deal.business_name,
+          funded_amount:     deal.funded_amount,
+          funding_date:      deal.funded_date,
+          assigned_agent_id: deal.assigned_agent_id,
+          notes:             [],
+          docs:              [],
+          deal_id:           id,
+          created_at:        new Date().toISOString(),
+        });
+      }
+    }
   }
 
   async function handleSave() {
@@ -174,7 +214,13 @@ export default function DealPipeline({ agent }) {
         {STAGES.map(stage => {
           const stageDeals = deals.filter(d => d.stage === stage.id);
           return (
-            <div key={stage.id} className="flex flex-col w-52 flex-shrink-0 min-h-0">
+            <div
+              key={stage.id}
+              className="flex flex-col w-52 flex-shrink-0 min-h-0"
+              onDragOver={e => { e.preventDefault(); setDragOverStage(stage.id); }}
+              onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOverStage(null); }}
+              onDrop={() => { handleDrop(stage.id); setDragOverStage(null); draggingId.current = null; }}
+            >
               <div className={`flex items-center justify-between px-3 py-2 mb-2 rounded-lg border ${stage.bg}`}>
                 <div className="flex items-center gap-2">
                   <div className={`w-2 h-2 rounded-full flex-shrink-0 ${stage.dot}`} />
@@ -183,9 +229,15 @@ export default function DealPipeline({ agent }) {
                 <span className="text-[#4a5568] text-xs tabular-nums">{stageDeals.length}</span>
               </div>
 
-              <div className="flex flex-col gap-2 overflow-y-auto flex-1">
+              <div className={`flex flex-col gap-2 overflow-y-auto flex-1 rounded-lg transition-all ${dragOverStage === stage.id ? "ring-1 ring-[#c9a84c]/40 bg-[#c9a84c]/5" : ""}`}>
                 {stageDeals.map(deal => (
-                  <DealCard key={deal.id} deal={deal} agentName={agentName} onClick={() => openDeal(deal)} />
+                  <DealCard
+                    key={deal.id}
+                    deal={deal}
+                    agentName={agentName}
+                    onClick={() => openDeal(deal)}
+                    onDragStart={() => { draggingId.current = deal.id; }}
+                  />
                 ))}
                 {stageDeals.length === 0 && (
                   <div className="border border-dashed border-[#1e2130] rounded-lg py-8 text-center">
@@ -216,6 +268,8 @@ export default function DealPipeline({ agent }) {
           saving={saving}
           hasExistingId={!!selected}
           isAdmin={agent?.role === "admin"}
+          dealId={selected?.id || null}
+          getAuthToken={getAuthToken}
         />
       )}
     </div>
@@ -229,14 +283,16 @@ const LEAD_TYPE_COLORS = {
   aged: "text-yellow-400", web: "text-emerald-400", live_transfer: "text-purple-400",
 };
 
-function DealCard({ deal, agentName, onClick }) {
+function DealCard({ deal, agentName, onClick, onDragStart }) {
   const docCount  = (deal.docs  || []).length;
   const noteCount = (deal.notes || []).length;
 
   return (
     <button
+      draggable
+      onDragStart={e => { e.stopPropagation(); onDragStart(); }}
       onClick={onClick}
-      className="w-full text-left bg-[#0d1117] border border-[#1e2130] rounded-lg p-3 hover:border-[#c9a84c]/30 hover:bg-[#111520] transition-all group"
+      className="w-full text-left bg-[#0d1117] border border-[#1e2130] rounded-lg p-3 hover:border-[#c9a84c]/30 hover:bg-[#111520] transition-all group cursor-grab active:cursor-grabbing"
     >
       <p className="text-white text-xs font-semibold truncate group-hover:text-[#c9a84c] transition-colors">
         {deal.contact_name || "Unnamed"}
@@ -262,8 +318,42 @@ function DealCard({ deal, agentName, onClick }) {
 
 // ── Drawer ────────────────────────────────────────────────────────────────────
 
-function DealDrawer({ form, setForm, isNew, agents, stages, newNote, setNewNote, onAddNote, onFileUpload, fileRef, onSave, onClose, saving, hasExistingId, isAdmin }) {
+function DealDrawer({ form, setForm, isNew, agents, stages, newNote, setNewNote, onAddNote, onFileUpload, fileRef, onSave, onClose, saving, hasExistingId, isAdmin, dealId, getAuthToken }) {
   const f = (key, val) => setForm(p => ({ ...p, [key]: val }));
+
+  const [sigEmail,   setSigEmail]   = useState("");
+  const [sigSending, setSigSending] = useState(false);
+  const [sigResult,  setSigResult]  = useState(null); // { ok: bool, msg: string }
+
+  async function sendForSignature() {
+    if (!sigEmail.trim()) return;
+    setSigSending(true);
+    setSigResult(null);
+    try {
+      const token = await getAuthToken();
+      const res = await fetch(`${API_BASE}/api/signwell/send-for-signature`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({
+          clientEmail:  sigEmail.trim(),
+          contactName:  form.contact_name,
+          businessName: form.business_name,
+          dealId,
+        }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        setSigResult({ ok: true, msg: `Sent to ${sigEmail.trim()}` });
+        setSigEmail("");
+      } else {
+        setSigResult({ ok: false, msg: json.error || "Send failed" });
+      }
+    } catch (err) {
+      setSigResult({ ok: false, msg: err.message });
+    } finally {
+      setSigSending(false);
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex" onClick={onClose}>
@@ -349,6 +439,40 @@ function DealDrawer({ form, setForm, isNew, agents, stages, newNote, setNewNote,
               </button>
             </div>
           </DrawerSection>
+
+          {hasExistingId && (
+            <DrawerSection title="Send Application">
+              {form.application_sent_at && (
+                <p className="text-[10px] text-emerald-400 mb-2">
+                  Last sent {new Date(form.application_sent_at).toLocaleString()}
+                  {form.signwell_document_id && <span className="text-[#4a5568]"> · doc {form.signwell_document_id.slice(0, 8)}…</span>}
+                </p>
+              )}
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  value={sigEmail}
+                  onChange={e => setSigEmail(e.target.value)}
+                  placeholder="client@email.com"
+                  className="flex-1 bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm placeholder-[#2d3748] focus:outline-none focus:border-[#c9a84c]/40 transition-colors"
+                />
+                <button
+                  onClick={sendForSignature}
+                  disabled={!sigEmail.trim() || sigSending}
+                  className="px-3 py-2 bg-[#c9a84c] text-[#080b10] text-xs font-semibold rounded-lg hover:opacity-90 disabled:opacity-40 transition-all flex-shrink-0"
+                >
+                  {sigSending ? (
+                    <div className="w-4 h-4 border-2 border-[#080b10] border-t-transparent rounded-full animate-spin" />
+                  ) : "Send"}
+                </button>
+              </div>
+              {sigResult && (
+                <p className={`text-xs mt-1.5 ${sigResult.ok ? "text-emerald-400" : "text-red-400"}`}>
+                  {sigResult.ok ? "✓ " : "✗ "}{sigResult.msg}
+                </p>
+              )}
+            </DrawerSection>
+          )}
 
           {hasExistingId && (
             <DrawerSection title={`Documents (${(form.docs || []).length})`}>

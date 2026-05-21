@@ -685,6 +685,55 @@ app.delete('/api/calendar/events/:id', async (req, res) => {
   }
 });
 
+// ── POST /api/signwell/send-for-signature ─────────────────────────────────────
+app.post('/api/signwell/send-for-signature', async (req, res) => {
+  const { clientEmail, contactName, businessName, dealId } = req.body;
+  if (!clientEmail) return res.status(400).json({ error: 'clientEmail is required' });
+
+  const apiKey     = process.env.SIGNWELL_API_KEY;
+  const templateId = process.env.SIGNWELL_TEMPLATE_ID;
+  if (!apiKey || !templateId) {
+    return res.status(500).json({ error: 'SignWell not configured — set SIGNWELL_API_KEY and SIGNWELL_TEMPLATE_ID in Railway env vars' });
+  }
+
+  try {
+    const templateFields = [];
+    if (businessName) templateFields.push({ api_id: 'business-name', value: businessName });
+    if (contactName)  templateFields.push({ api_id: 'owner-name',    value: contactName });
+
+    const swRes = await axios.post(
+      'https://www.signwell.com/api/v1/document_templates/documents',
+      {
+        template_id: templateId,
+        recipients: [{
+          id: '1',
+          email: clientEmail,
+          name: contactName || clientEmail,
+          placeholder_name: 'Signer 1',
+        }],
+        template_fields: templateFields,
+      },
+      { headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' } }
+    );
+
+    const documentId = swRes.data?.id || swRes.data?.document?.id || null;
+    const sentAt     = new Date().toISOString();
+
+    if (dealId) {
+      await supabase.from('deals').update({
+        signwell_document_id: documentId,
+        application_sent_at:  sentAt,
+      }).eq('id', dealId);
+    }
+
+    console.log(`[signwell] sent application to ${clientEmail} — doc ${documentId}`);
+    res.json({ success: true, documentId, sentAt });
+  } catch (err) {
+    console.error('[signwell/send]', err.response?.data || err.message);
+    res.status(err.response?.status || 500).json({ error: err.response?.data || err.message });
+  }
+});
+
 // ── POST /api/send-application ────────────────────────────────────────────────
 app.post('/api/send-application', async (req, res) => {
   const {

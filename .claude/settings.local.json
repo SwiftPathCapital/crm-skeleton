@@ -45,7 +45,20 @@
       "PowerShell(cmd /c \"dir \"\"C:\\\\Users\\\\free2\\\\OneDrive\\\\Desktop\\\\crm-skeleton\\\\\"\" /b | findstr /i gemini\")",
       "PowerShell(Copy-Item *)",
       "PowerShell(supabase *)",
-      "Bash(npx supabase *)"
+      "Bash(npx supabase *)",
+      "Bash(measure-object)",
+      "Bash(dir /s src\\\\renderer\\\\src\\\\pages\\\\*.jsx)",
+      "Bash(New-Item -ItemType Directory -Force \"C:\\\\Users\\\\free2\\\\OneDrive\\\\Desktop\\\\crm-skeleton\\\\supabase\\\\migrations\")",
+      "Bash(Out-Null)",
+      "Bash(Write-Output \"done\")",
+      "Bash(curl *)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\([p for p in d.get\\('paths',{}\\) if 'lead_comment' in p]\\)\")",
+      "Bash(node -e \"const pkg = require\\('./server/package.json'\\); console.log\\(JSON.stringify\\(pkg.dependencies, null, 2\\)\\)\")",
+      "Bash(node *)",
+      "WebFetch(domain:help.dochub.com)",
+      "WebFetch(domain:sign.dropbox.com)",
+      "WebFetch(domain:developers.signwell.com)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }
