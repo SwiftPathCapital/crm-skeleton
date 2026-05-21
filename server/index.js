@@ -685,6 +685,72 @@ app.delete('/api/calendar/events/:id', async (req, res) => {
   }
 });
 
+// ── POST /api/application-requests/:id/approve ───────────────────────────────
+app.post('/api/application-requests/:id/approve', async (req, res) => {
+  const { data: me } = await supabase.from('agents').select('role').eq('id', req.userId).single();
+  if (me?.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+
+  const { data: request } = await supabaseAdmin
+    .from('application_requests').select('*').eq('id', req.params.id).single();
+  if (!request)                   return res.status(404).json({ error: 'Request not found' });
+  if (request.status !== 'pending') return res.status(400).json({ error: 'Request is not pending' });
+
+  const apiKey     = process.env.SIGNWELL_API_KEY;
+  const templateId = process.env.SIGNWELL_TEMPLATE_ID;
+  if (!apiKey || !templateId) return res.status(500).json({ error: 'SignWell not configured' });
+
+  try {
+    const templateFields = [];
+    if (request.business_name) templateFields.push({ api_id: 'business-name', value: request.business_name });
+    if (request.contact_name)  templateFields.push({ api_id: 'owner-name',    value: request.contact_name });
+
+    const swRes = await axios.post(
+      'https://www.signwell.com/api/v1/document_templates/documents',
+      {
+        template_id: templateId,
+        recipients: [{ id: '1', email: request.client_email, name: request.contact_name || request.client_email, placeholder_name: 'Signer 1' }],
+        template_fields: templateFields,
+      },
+      { headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' } }
+    );
+
+    const documentId = swRes.data?.id || swRes.data?.document?.id || null;
+    const now        = new Date().toISOString();
+
+    await supabaseAdmin.from('application_requests').update({
+      status: 'approved', reviewed_by: req.userId, reviewed_at: now,
+      signwell_document_id: documentId, signwell_sent_at: now,
+    }).eq('id', request.id);
+
+    if (request.deal_id) {
+      await supabaseAdmin.from('deals').update({
+        signwell_document_id: documentId, application_sent_at: now,
+      }).eq('id', request.deal_id);
+    }
+
+    console.log(`[app-requests] approved ${request.id} — sent to ${request.client_email} doc ${documentId}`);
+    res.json({ success: true, documentId });
+  } catch (err) {
+    console.error('[app-requests/approve]', err.response?.data || err.message);
+    res.status(err.response?.status || 500).json({ error: err.response?.data || err.message });
+  }
+});
+
+// ── POST /api/application-requests/:id/reject ─────────────────────────────────
+app.post('/api/application-requests/:id/reject', async (req, res) => {
+  const { data: me } = await supabase.from('agents').select('role').eq('id', req.userId).single();
+  if (me?.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+
+  const { note = '' } = req.body;
+  const { error } = await supabaseAdmin.from('application_requests').update({
+    status: 'rejected', reviewed_by: req.userId,
+    reviewed_at: new Date().toISOString(), rejection_note: note || null,
+  }).eq('id', req.params.id).eq('status', 'pending');
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true });
+});
+
 // ── POST /api/signwell/send-for-signature ─────────────────────────────────────
 app.post('/api/signwell/send-for-signature', async (req, res) => {
   const { clientEmail, contactName, businessName, dealId } = req.body;
