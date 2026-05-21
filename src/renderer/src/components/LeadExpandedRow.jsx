@@ -612,13 +612,18 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
       {activeTab === "details" && (
         <div className="grid grid-cols-2 gap-x-6 gap-y-4 min-w-0">
           <SectionHeader title="Lead Info" />
-          <div className="col-span-2 flex flex-col gap-1 min-w-0">
-            <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider">Phone</label>
-            <span className="w-full truncate text-white text-sm px-3 py-2 bg-[#0f1117] border border-[#1e2130] rounded-lg">
-              {lead.phone || "—"}
-            </span>
-          </div>
-          <Field label="Lead Vendor" fieldKey="lead_vendor" value={formData.lead_vendor} onChange={handleChange} />
+
+          <Field label="First Name"    fieldKey="first_name"   value={formData.first_name}   onChange={handleChange} />
+          <Field label="Last Name"     fieldKey="last_name"    value={formData.last_name}    onChange={handleChange} />
+          <Field label="Company Name"  fieldKey="company_name" value={formData.company_name} onChange={handleChange} fullWidth />
+          <Field label="Phone"         fieldKey="phone"        value={formData.phone}        onChange={handleChange} />
+          <Field label="Email"         fieldKey="email"        value={formData.email}        onChange={handleChange} type="email" />
+          <Field label="Address"       fieldKey="address"      value={formData.address}      onChange={handleChange} fullWidth />
+          <Field label="City"          fieldKey="city"         value={formData.city}         onChange={handleChange} />
+          <Field label="State"         fieldKey="state"        value={formData.state}        onChange={handleChange} />
+          <Field label="Zip"           fieldKey="zip"          value={formData.zip}          onChange={handleChange} />
+          <Field label="Lead Vendor"   fieldKey="lead_vendor"  value={formData.lead_vendor}  onChange={handleChange} />
+
           <div className="flex flex-col gap-1">
             <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider">Status</label>
             <select

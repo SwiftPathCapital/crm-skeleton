@@ -3,7 +3,7 @@ import { supabase } from "../lib/supabaseClient";
 import { useApp } from "../context/AppContext";
 
 const API_BASE =
-  typeof window !== "undefined" && window.location?.protocol === "file:"
+  typeof navigator !== "undefined" && navigator.userAgent.toLowerCase().includes("electron")
     ? "http://localhost:3001"
     : "";
 

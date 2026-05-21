@@ -78,6 +78,7 @@ async function requireAuth(req, res, next) {
   next();
 }
 
+
 // Apply requireAuth to all /api/* routes and /sms
 app.use('/api', requireAuth);
 app.use('/sms', requireAuth);
