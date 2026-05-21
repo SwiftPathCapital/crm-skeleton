@@ -243,12 +243,14 @@ export default function EmailClient({ initialCompose = null, initialEmailId = nu
         const res = await fetch(`${API_BASE}${endpoint}?limit=50`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
+        const json = await res.json();
         if (res.ok) {
-          const json = await res.json();
           const msgs = (json.data || []).map((zm) => mapZohoMessage(zm, activeFolder));
-          setEmails(msgs.length > 0 ? msgs : []);
+          console.log(`[loadEmails] ${endpoint} → ${msgs.length} messages`);
+          setEmails(msgs);
           return;
         }
+        console.error(`[loadEmails] ${endpoint} error ${res.status}:`, json);
       }
       // Supabase fallback
       const { data, error } = await supabase
