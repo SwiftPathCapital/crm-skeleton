@@ -19,11 +19,18 @@ const STAGES = [
 const EMPTY_DEAL = {
   contact_name: "", business_name: "", lead_type: "",
   assigned_agent_id: "", stage: "new_lead",
-  notes: [], docs: [], funded_amount: "", funded_date: "",
+  notes: [], docs: [],
+  funded_amount: "", funded_date: "",
+  commission_rate: "", commission_amount: "",
 };
 
+function dollar(n) {
+  if (!n && n !== 0) return "—";
+  return "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
 export default function DealPipeline({ agent }) {
-  const { getAuthToken } = useApp();
+  const { getAuthToken, userId } = useApp();
   const [deals, setDeals]           = useState([]);
   const [agents, setAgents]         = useState([]);
   const [loading, setLoading]       = useState(true);
@@ -60,7 +67,13 @@ export default function DealPipeline({ agent }) {
   function openDeal(deal) {
     setSelected(deal);
     setIsNew(false);
-    setForm({ ...deal, funded_amount: deal.funded_amount ?? "", funded_date: deal.funded_date ?? "" });
+    setForm({
+      ...deal,
+      funded_amount:     deal.funded_amount     ?? "",
+      funded_date:       deal.funded_date       ?? "",
+      commission_rate:   deal.commission_rate   ?? "",
+      commission_amount: deal.commission_amount ?? "",
+    });
     setNewNote("");
   }
 
@@ -105,7 +118,6 @@ export default function DealPipeline({ agent }) {
     const nowFunded    = stageId === "funded";
 
     setDeals(prev => prev.map(d => d.id === id ? { ...d, stage: stageId } : d));
-
     await supabase.from("deals").update({ stage: stageId, updated_at: new Date().toISOString() }).eq("id", id);
 
     if (nowFunded && wasNotFunded) {
@@ -117,10 +129,9 @@ export default function DealPipeline({ agent }) {
           funded_amount:     deal.funded_amount,
           funding_date:      deal.funded_date,
           assigned_agent_id: deal.assigned_agent_id,
-          notes:             [],
-          docs:              [],
-          deal_id:           id,
-          created_at:        new Date().toISOString(),
+          notes: [], docs: [],
+          deal_id:    id,
+          created_at: new Date().toISOString(),
         });
       }
     }
@@ -141,8 +152,10 @@ export default function DealPipeline({ agent }) {
         stage:             form.stage,
         notes:             form.notes || [],
         docs:              form.docs  || [],
-        funded_amount:     form.funded_amount ? parseFloat(form.funded_amount) : null,
-        funded_date:       form.funded_date   || null,
+        funded_amount:     form.funded_amount     ? parseFloat(form.funded_amount)     : null,
+        funded_date:       form.funded_date       || null,
+        commission_rate:   form.commission_rate   ? parseFloat(form.commission_rate)   : 0,
+        commission_amount: form.commission_amount ? parseFloat(form.commission_amount) : 0,
         updated_at:        new Date().toISOString(),
       };
 
@@ -155,7 +168,6 @@ export default function DealPipeline({ agent }) {
         savedDeal = data;
       }
 
-      // Auto-create client record when a deal is first marked Funded
       if (nowFunded && (wasNotFunded || !selected) && savedDeal) {
         const { data: existing } = await supabase.from("clients").select("id").eq("deal_id", savedDeal.id).maybeSingle();
         if (!existing) {
@@ -165,10 +177,9 @@ export default function DealPipeline({ agent }) {
             funded_amount:     savedDeal.funded_amount,
             funding_date:      savedDeal.funded_date,
             assigned_agent_id: savedDeal.assigned_agent_id,
-            notes:             [],
-            docs:              [],
-            deal_id:           savedDeal.id,
-            created_at:        new Date().toISOString(),
+            notes: [], docs: [],
+            deal_id:    savedDeal.id,
+            created_at: new Date().toISOString(),
           });
         }
       }
@@ -192,7 +203,6 @@ export default function DealPipeline({ agent }) {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Header */}
       <div className="flex items-center justify-between mb-5 flex-shrink-0">
         <div>
           <h1 className="text-white text-2xl font-bold tracking-tight">Deal Pipeline</h1>
@@ -209,7 +219,6 @@ export default function DealPipeline({ agent }) {
         </button>
       </div>
 
-      {/* Kanban board */}
       <div className="flex gap-3 overflow-x-auto flex-1 pb-2 min-h-0">
         {STAGES.map(stage => {
           const stageDeals = deals.filter(d => d.stage === stage.id);
@@ -250,7 +259,6 @@ export default function DealPipeline({ agent }) {
         })}
       </div>
 
-      {/* Side drawer */}
       {modalOpen && (
         <DealDrawer
           form={form}
@@ -269,6 +277,7 @@ export default function DealPipeline({ agent }) {
           hasExistingId={!!selected}
           isAdmin={agent?.role === "admin"}
           dealId={selected?.id || null}
+          currentUserId={userId}
           getAuthToken={getAuthToken}
         />
       )}
@@ -300,6 +309,9 @@ function DealCard({ deal, agentName, onClick, onDragStart }) {
       {deal.business_name && (
         <p className="text-[#4a5568] text-[10px] truncate mt-0.5">{deal.business_name}</p>
       )}
+      {deal.funded_amount > 0 && (
+        <p className="text-emerald-400 text-[10px] font-semibold mt-1">{dollar(deal.funded_amount)}</p>
+      )}
       <div className="flex items-center gap-2 mt-2">
         {deal.lead_type && (
           <span className={`text-[10px] font-medium capitalize ${LEAD_TYPE_COLORS[deal.lead_type] || "text-[#4a5568]"}`}>
@@ -318,12 +330,61 @@ function DealCard({ deal, agentName, onClick, onDragStart }) {
 
 // ── Drawer ────────────────────────────────────────────────────────────────────
 
-function DealDrawer({ form, setForm, isNew, agents, stages, newNote, setNewNote, onAddNote, onFileUpload, fileRef, onSave, onClose, saving, hasExistingId, isAdmin, dealId, getAuthToken }) {
+const OFFER_EMPTY = { amount: "", factor_rate: "", term: "", position: "1st", notes: "" };
+
+function DealDrawer({ form, setForm, isNew, agents, stages, newNote, setNewNote, onAddNote, onFileUpload, fileRef, onSave, onClose, saving, hasExistingId, isAdmin, dealId, currentUserId, getAuthToken }) {
   const f = (key, val) => setForm(p => ({ ...p, [key]: val }));
 
   const [sigEmail,   setSigEmail]   = useState("");
   const [sigSending, setSigSending] = useState(false);
-  const [sigResult,  setSigResult]  = useState(null); // { ok: bool, msg: string }
+  const [sigResult,  setSigResult]  = useState(null);
+
+  const [offers,      setOffers]      = useState([]);
+  const [offersLoading, setOffersLoading] = useState(false);
+  const [offerForm,   setOfferForm]   = useState(OFFER_EMPTY);
+  const [offerSaving, setOfferSaving] = useState(false);
+  const [showOfferForm, setShowOfferForm] = useState(false);
+
+  useEffect(() => {
+    if (!dealId) { setOffers([]); return; }
+    setOffersLoading(true);
+    supabase.from("offers").select("*").eq("deal_id", dealId).order("created_at", { ascending: false })
+      .then(({ data }) => { setOffers(data || []); setOffersLoading(false); });
+  }, [dealId]);
+
+  function handleCommissionCalc(key, val) {
+    const updated = { ...form, [key]: val };
+    const fa = parseFloat(updated.funded_amount) || 0;
+    const cr = parseFloat(updated.commission_rate) || 0;
+    if (fa && cr && key !== "commission_amount") {
+      updated.commission_amount = ((fa * cr) / 100).toFixed(2);
+    }
+    setForm(updated);
+  }
+
+  async function addOffer() {
+    if (!offerForm.amount || !dealId) return;
+    setOfferSaving(true);
+    const { data } = await supabase.from("offers").insert({
+      deal_id:     dealId,
+      agent_id:    currentUserId,
+      amount:      parseFloat(offerForm.amount),
+      factor_rate: offerForm.factor_rate ? parseFloat(offerForm.factor_rate) : null,
+      term:        offerForm.term.trim(),
+      position:    offerForm.position,
+      notes:       offerForm.notes.trim(),
+      status:      "sent",
+    }).select().single();
+    if (data) setOffers(prev => [data, ...prev]);
+    setOfferForm(OFFER_EMPTY);
+    setShowOfferForm(false);
+    setOfferSaving(false);
+  }
+
+  async function updateOfferStatus(offerId, status) {
+    await supabase.from("offers").update({ status }).eq("id", offerId);
+    setOffers(prev => prev.map(o => o.id === offerId ? { ...o, status } : o));
+  }
 
   async function sendForSignature() {
     if (!sigEmail.trim()) return;
@@ -334,20 +395,11 @@ function DealDrawer({ form, setForm, isNew, agents, stages, newNote, setNewNote,
       const res = await fetch(`${API_BASE}/api/signwell/send-for-signature`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({
-          clientEmail:  sigEmail.trim(),
-          contactName:  form.contact_name,
-          businessName: form.business_name,
-          dealId,
-        }),
+        body: JSON.stringify({ clientEmail: sigEmail.trim(), contactName: form.contact_name, businessName: form.business_name, dealId }),
       });
       const json = await res.json();
-      if (res.ok) {
-        setSigResult({ ok: true, msg: `Sent to ${sigEmail.trim()}` });
-        setSigEmail("");
-      } else {
-        setSigResult({ ok: false, msg: json.error || "Send failed" });
-      }
+      if (res.ok) { setSigResult({ ok: true, msg: `Sent to ${sigEmail.trim()}` }); setSigEmail(""); }
+      else        { setSigResult({ ok: false, msg: json.error || "Send failed" }); }
     } catch (err) {
       setSigResult({ ok: false, msg: err.message });
     } finally {
@@ -355,13 +407,17 @@ function DealDrawer({ form, setForm, isNew, agents, stages, newNote, setNewNote,
     }
   }
 
+  const OFFER_STATUS_STYLES = {
+    sent:     "bg-[#1e2130] text-[#8892a4]",
+    accepted: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20",
+    declined: "bg-red-500/10 text-red-400 border border-red-500/20",
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex" onClick={onClose}>
-      {/* Scrim */}
       <div className="flex-1 bg-black/40" />
-      {/* Panel */}
       <div
-        className="h-full w-[460px] bg-[#0d1117] border-l border-[#1e2130] flex flex-col overflow-hidden"
+        className="h-full w-[480px] bg-[#0d1117] border-l border-[#1e2130] flex flex-col overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#1e2130] flex-shrink-0">
@@ -374,6 +430,7 @@ function DealDrawer({ form, setForm, isNew, agents, stages, newNote, setNewNote,
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+
           <DrawerSection title="Contact Info">
             <DrawerField label="Contact Name" value={form.contact_name} onChange={v => f("contact_name", v)} />
             <DrawerField label="Business Name" value={form.business_name} onChange={v => f("business_name", v)} />
@@ -406,12 +463,133 @@ function DealDrawer({ form, setForm, isNew, agents, stages, newNote, setNewNote,
             )}
           </DrawerSection>
 
-          {form.stage === "funded" && (
-            <DrawerSection title="Funding">
-              <DrawerField label="Funded Amount ($)" value={form.funded_amount} onChange={v => f("funded_amount", v)} type="number" />
-              <DrawerField label="Funded Date" value={form.funded_date} onChange={v => f("funded_date", v)} type="date" />
+          {/* ── Offers ── */}
+          {hasExistingId && (
+            <DrawerSection title={`Offers (${offers.length})`}>
+              {offersLoading ? (
+                <p className="text-[#4a5568] text-xs">Loading…</p>
+              ) : (
+                <div className="space-y-2">
+                  {offers.map(o => (
+                    <div key={o.id} className="bg-[#080b10] border border-[#1e2130] rounded-lg p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-white text-sm font-semibold">{dollar(o.amount)}</p>
+                          <p className="text-[#4a5568] text-[10px] mt-0.5">
+                            {o.factor_rate ? `${o.factor_rate}x factor` : ""}
+                            {o.factor_rate && o.term ? " · " : ""}
+                            {o.term}
+                            {o.position ? ` · ${o.position} position` : ""}
+                          </p>
+                          {o.notes && <p className="text-[#4a5568] text-[10px] mt-1">{o.notes}</p>}
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <span className={`text-[10px] px-2 py-0.5 rounded-md font-medium ${OFFER_STATUS_STYLES[o.status] || OFFER_STATUS_STYLES.sent}`}>
+                            {o.status}
+                          </span>
+                          {o.status === "sent" && (
+                            <>
+                              <button
+                                onClick={() => updateOfferStatus(o.id, "accepted")}
+                                className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded text-[10px] hover:bg-emerald-500/20 transition-colors"
+                              >
+                                Accept
+                              </button>
+                              <button
+                                onClick={() => updateOfferStatus(o.id, "declined")}
+                                className="px-2 py-0.5 bg-red-500/10 text-red-400 border border-red-500/20 rounded text-[10px] hover:bg-red-500/20 transition-colors"
+                              >
+                                Decline
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {showOfferForm ? (
+                <div className="bg-[#080b10] border border-[#1e2130] rounded-lg p-3 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <DrawerLabel>Amount ($)</DrawerLabel>
+                      <input type="number" value={offerForm.amount} onChange={e => setOfferForm(f => ({ ...f, amount: e.target.value }))}
+                        placeholder="50000" className={miniInputCls} />
+                    </div>
+                    <div>
+                      <DrawerLabel>Factor Rate</DrawerLabel>
+                      <input type="number" step="0.01" value={offerForm.factor_rate} onChange={e => setOfferForm(f => ({ ...f, factor_rate: e.target.value }))}
+                        placeholder="1.35" className={miniInputCls} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <DrawerLabel>Term</DrawerLabel>
+                      <input type="text" value={offerForm.term} onChange={e => setOfferForm(f => ({ ...f, term: e.target.value }))}
+                        placeholder="6 months" className={miniInputCls} />
+                    </div>
+                    <div>
+                      <DrawerLabel>Position</DrawerLabel>
+                      <select value={offerForm.position} onChange={e => setOfferForm(f => ({ ...f, position: e.target.value }))} className={miniInputCls}>
+                        {["1st","2nd","3rd"].map(p => <option key={p} value={p}>{p}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <DrawerLabel>Notes</DrawerLabel>
+                    <input type="text" value={offerForm.notes} onChange={e => setOfferForm(f => ({ ...f, notes: e.target.value }))}
+                      placeholder="Additional details…" className={miniInputCls} />
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={addOffer}
+                      disabled={!offerForm.amount || offerSaving}
+                      className="flex-1 py-1.5 bg-[#c9a84c] text-[#080b10] text-xs font-semibold rounded-lg hover:opacity-90 disabled:opacity-40 transition-all"
+                    >
+                      {offerSaving ? "Saving…" : "Log Offer"}
+                    </button>
+                    <button onClick={() => { setShowOfferForm(false); setOfferForm(OFFER_EMPTY); }}
+                      className="px-3 py-1.5 bg-[#1e2130] text-[#8892a4] text-xs rounded-lg hover:text-white transition-colors">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowOfferForm(true)}
+                  className="w-full border border-dashed border-[#1e2130] hover:border-[#c9a84c]/30 rounded-lg py-2.5 text-[#4a5568] hover:text-white text-xs transition-all"
+                >
+                  + Log Offer Sent
+                </button>
+              )}
             </DrawerSection>
           )}
+
+          {/* ── Funding & Commission ── */}
+          <DrawerSection title="Funding &amp; Commission">
+            <div className="grid grid-cols-2 gap-3">
+              <DrawerField label="Funded Amount ($)" value={form.funded_amount}
+                onChange={v => handleCommissionCalc("funded_amount", v)} type="number" />
+              <DrawerField label="Funded Date" value={form.funded_date}
+                onChange={v => f("funded_date", v)} type="date" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <DrawerField label="Commission Rate (%)" value={form.commission_rate}
+                onChange={v => handleCommissionCalc("commission_rate", v)} type="number" />
+              <div>
+                <DrawerLabel>Commission ($)</DrawerLabel>
+                <input
+                  type="number"
+                  value={form.commission_amount}
+                  onChange={e => f("commission_amount", e.target.value)}
+                  placeholder="Auto-calculated"
+                  className="w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-emerald-400 text-sm font-semibold focus:outline-none focus:border-[#c9a84c]/40 transition-colors"
+                />
+              </div>
+            </div>
+          </DrawerSection>
 
           <DrawerSection title={`Notes (${(form.notes || []).length})`}>
             <div className="space-y-2">
@@ -461,9 +639,7 @@ function DealDrawer({ form, setForm, isNew, agents, stages, newNote, setNewNote,
                   disabled={!sigEmail.trim() || sigSending}
                   className="px-3 py-2 bg-[#c9a84c] text-[#080b10] text-xs font-semibold rounded-lg hover:opacity-90 disabled:opacity-40 transition-all flex-shrink-0"
                 >
-                  {sigSending ? (
-                    <div className="w-4 h-4 border-2 border-[#080b10] border-t-transparent rounded-full animate-spin" />
-                  ) : "Send"}
+                  {sigSending ? <div className="w-4 h-4 border-2 border-[#080b10] border-t-transparent rounded-full animate-spin" /> : "Send"}
                 </button>
               </div>
               {sigResult && (
@@ -519,7 +695,8 @@ function DealDrawer({ form, setForm, isNew, agents, stages, newNote, setNewNote,
 
 // ── Shared sub-components ─────────────────────────────────────────────────────
 
-const selectCls = "w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a84c]/40 transition-colors";
+const selectCls   = "w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a84c]/40 transition-colors";
+const miniInputCls = "w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-[#c9a84c]/40 transition-colors";
 
 function DrawerLabel({ children }) {
   return <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider block mb-1.5">{children}</label>;
