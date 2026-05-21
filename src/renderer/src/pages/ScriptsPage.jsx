@@ -831,6 +831,159 @@ function WebformScript({ agent }) {
 }
 
 // ─────────────────────────────────────────────
+// OPENING REBUTTALS DATA
+// ─────────────────────────────────────────────
+const OPENING_REBUTTALS = [
+  {
+    id: "already-did-that",
+    objection: "\"I already did that.\"",
+    context: "When a business owner or potential partner hits you with \"I already did that,\" it usually means one of two things: they've already taken out an MCA in the past, or they are currently working with a broker/funder.\n\nTo keep the conversation alive, you have to pivot from a generic sales pitch to an active diagnostic approach. The goal is to figure out if their current situation is actually serving them or if they are leaving money on the table.",
+    scenarios: [
+      {
+        label: "Scenario A",
+        heading: "\"I already took out an MCA / I'm funded.\"",
+        color: "#f0a060",
+        intro: "If they currently have an active position, do not try to convince them to drop it immediately. Instead, focus on refinancing, stacking (if eligible), or beating their current terms.",
+        rebuttals: [
+          {
+            tag: "Total Cost Pivot",
+            q: "Hidden fees / restructure angle",
+            r: "\"That's great, it means your business has the cash flow underwriters look for. Let me ask you: when they structured your factor rate, did they include any hidden daily administrative or junk origination fees? A lot of guys find out late that they're paying way more than the flat rate they were quoted. If I can take a look at your current addendum, there's a good chance Swift Path can restructure that into a much cleaner, lower-cost position.\"",
+          },
+          {
+            tag: "Add-On / Stacking",
+            q: "Second position / extra liquidity angle",
+            r: "\"Perfect, so you already know how valuable quick liquidity is. Are you currently capped out with that funder? Often, we can come in as a trusted second position to give you that extra 20% or 30% you needed for inventory or project overhead that your primary source couldn't cover. It takes less than 10 minutes to see what your headroom looks like.\"",
+          },
+          {
+            tag: "Next Time Seed",
+            q: "Plant the relationship for the renewal",
+            r: "\"Glad to hear you're taken care of for now. But as you know in this industry, funder appetites change daily. The next time you need capital — whether it's a renewal or an emergency bridge — having a backup relationship ready to go is just smart business. Let's get your profile vetted now so that when you do need a fast pivot, you aren't starting from scratch.\"",
+          },
+        ],
+        tip: "Past MCA experience isn't a door close — it's intel. A bad experience is a perfect setup to contrast what you do differently. A funded one opens three angles: refinance, stack, or plant the seed for the next round.",
+      },
+      {
+        label: "Scenario B",
+        heading: "\"I already applied with someone else / I'm looking at an offer.\"",
+        color: "#5b9cf6",
+        intro: "If they are actively shopping around, your job is to introduce doubt about the other broker's transparency and show why your process is better.",
+        rebuttals: [
+          {
+            tag: "Double-Check",
+            q: "Competing offer / soft inquiry angle",
+            r: "\"I completely understand, shopping around is smart. But before you sign that dotted line, let's do a quick double-check. A lot of brokers out there will shop your file to 15 different places, which leaves a massive trail of soft inquiries and can actually hurt your risk profile. We have direct, in-house routing. Let me put a competing offer on your desk — if their deal is better, I'll tell you straight up. If ours is better, you save thousands.\"",
+          },
+          {
+            tag: "Flexibility Challenge",
+            q: "Fixed ACH vs. variable split",
+            r: "\"Did they offer you a fixed daily ACH, or is it a true variable split based on your actual sales? If they locked you into a rigid daily payment regardless of whether you have a slow week, you might be walking into a cash crunch. Our structures at Swift Path look at your seasonal dips so your payments mirror your revenue.\"",
+          },
+        ],
+        tip: "Most people who say 'I already applied' haven't signed anything yet. Two questions — inquiry trail and payment structure — are enough to plant real doubt about the other deal.",
+      },
+    ],
+    goldenRules: [
+      { num: "01", title: "Agree and Validate", body: "Never argue. Say \"That's exactly why I called\" or \"Awesome, glad to hear you're familiar with the product.\" It lowers their defensive wall." },
+      { num: "02", title: "Shift to the Future", body: "An MCA is a short-term tool. Even if they \"already did it,\" they will likely need it again in 3–6 months. Position yourself as the optimization option for their next round." },
+      { num: "03", title: "Isolate the Pain Point", body: "Ask a leading question about their current deal (e.g., \"How long of a term did they lock you into?\" or \"What percentage of your daily sales are they pulling?\"). If they hesitate or don't know, you've just found your opening to educate them." },
+    ],
+  },
+];
+
+// ─────────────────────────────────────────────
+// OPENING REBUTTALS COMPONENT
+// ─────────────────────────────────────────────
+function OpeningRebuttals() {
+  const [openId, setOpenId] = useState("already-did-that");
+  const accentColor = "#a78bfa";
+
+  return (
+    <div style={{ flex:1, overflowY:"auto", padding:28, maxWidth:860 }}>
+      {/* Section header */}
+      <div style={{ marginBottom:32 }}>
+        <div style={{ display:"inline-flex", alignItems:"center", background:"rgba(167,139,250,0.1)", border:"1px solid rgba(167,139,250,0.3)", color:accentColor, fontSize:11, fontWeight:600, letterSpacing:"0.08em", textTransform:"uppercase", padding:"4px 10px", borderRadius:4, marginBottom:12 }}>Opening Rebuttals</div>
+        <div style={{ fontSize:22, fontWeight:700, color:"#f0f0ee", lineHeight:1.25, marginBottom:8 }}>Handling Early Objections</div>
+        <div style={{ fontSize:14, color:"#9a9d9e", lineHeight:1.6 }}>Common objections at the top of a cold call — before the pitch. Diagnose first, then respond.</div>
+      </div>
+
+      {OPENING_REBUTTALS.map(rb => {
+        const isOpen = openId === rb.id;
+        return (
+          <div key={rb.id} style={{ background:"#15171a", border:`1px solid ${isOpen ? accentColor + "55" : "#2a2d32"}`, borderRadius:10, marginBottom:12, overflow:"hidden", transition:"border-color 0.2s" }}>
+            {/* Card header */}
+            <div
+              onClick={() => setOpenId(isOpen ? null : rb.id)}
+              style={{ display:"flex", alignItems:"center", gap:12, padding:"16px 18px", cursor:"pointer", background: isOpen ? "#1c1f23" : "transparent" }}
+              onMouseEnter={e => { if (!isOpen) e.currentTarget.style.background = "#1c1f23"; }}
+              onMouseLeave={e => { if (!isOpen) e.currentTarget.style.background = "transparent"; }}
+            >
+              <span style={{ fontSize:11, fontWeight:600, letterSpacing:"0.08em", textTransform:"uppercase", padding:"3px 8px", borderRadius:3, border:`1px solid ${accentColor}44`, color:accentColor, background:"rgba(255,255,255,0.03)", flexShrink:0 }}>Objection</span>
+              <span style={{ fontSize:14, fontWeight:500, color:"#f0f0ee", flex:1 }}>{rb.objection}</span>
+              <span style={{ color:"#5a5d5f", fontSize:18, transition:"transform 0.2s", transform: isOpen ? "rotate(90deg)" : "none", flexShrink:0 }}>›</span>
+            </div>
+
+            {isOpen && (
+              <div style={{ borderTop:"1px solid #2a2d32" }}>
+                {/* Context */}
+                <div style={{ padding:"16px 18px", borderBottom:"1px solid #2a2d32" }}>
+                  <div style={{ fontSize:11, fontWeight:600, color:"#5a5d5f", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:8 }}>Context</div>
+                  <div style={{ fontSize:13, color:"#9a9d9e", lineHeight:1.8, whiteSpace:"pre-line" }}>{rb.context}</div>
+                </div>
+
+                {/* Scenarios */}
+                {rb.scenarios.map((sc, si) => (
+                  <div key={si} style={{ borderBottom:"1px solid #2a2d32" }}>
+                    {/* Scenario heading */}
+                    <div style={{ padding:"12px 18px 0", display:"flex", alignItems:"center", gap:8 }}>
+                      <span style={{ fontSize:10, fontWeight:600, letterSpacing:"0.08em", textTransform:"uppercase", color:sc.color, border:`1px solid ${sc.color}44`, padding:"2px 7px", borderRadius:3 }}>{sc.label}</span>
+                      <span style={{ fontSize:13, fontWeight:600, color:"#f0f0ee" }}>{sc.heading}</span>
+                    </div>
+                    <div style={{ padding:"8px 18px 12px" }}>
+                      <div style={{ fontSize:13, color:"#9a9d9e", lineHeight:1.6, marginBottom:12 }}>{sc.intro}</div>
+                      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                        {sc.rebuttals.map((r, ri) => (
+                          <div key={ri} style={{ background:"#1c1f23", border:`1px solid ${sc.color}22`, borderRadius:8, overflow:"hidden" }}>
+                            <div style={{ padding:"8px 12px", borderBottom:`1px solid ${sc.color}22`, display:"flex", alignItems:"center", gap:8 }}>
+                              <span style={{ fontSize:10, fontWeight:600, letterSpacing:"0.06em", textTransform:"uppercase", color:sc.color }}>{r.tag}</span>
+                              <span style={{ fontSize:12, color:"#5a5d5f" }}>— {r.q}</span>
+                            </div>
+                            <div style={{ padding:"10px 12px", fontSize:13, color:"#9a9d9e", lineHeight:1.75 }}>{r.r}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ fontSize:12, color:"#5a5d5f", marginTop:10, padding:"8px 10px", background:"#1c1f23", borderRadius:6, borderLeft:`2px solid #353a40`, fontFamily:"'DM Mono', monospace" }}>💡 {sc.tip}</div>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Golden Rules */}
+                {rb.goldenRules && (
+                  <div style={{ padding:"16px 18px" }}>
+                    <div style={{ fontSize:11, fontWeight:600, color:"#5a5d5f", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:12 }}>3 Golden Rules for Delivering the Rebuttal</div>
+                    <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                      {rb.goldenRules.map((rule, ri) => (
+                        <div key={ri} style={{ display:"flex", gap:12, padding:"12px 14px", background:"#1c1f23", borderRadius:8, borderLeft:`2px solid ${accentColor}66` }}>
+                          <span style={{ fontFamily:"'DM Mono', monospace", fontSize:12, color:accentColor, minWidth:20, flexShrink:0 }}>{rule.num}</span>
+                          <div>
+                            <div style={{ fontSize:13, fontWeight:600, color:"#f0f0ee", marginBottom:4 }}>{rule.title}</div>
+                            <div style={{ fontSize:13, color:"#9a9d9e", lineHeight:1.6 }}>{rule.body}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // MAIN SCRIPTS PAGE
 // ─────────────────────────────────────────────
 export default function ScriptsPage({ agent }) {
@@ -854,6 +1007,7 @@ export default function ScriptsPage({ agent }) {
           {[
             { id:"live", label:"Live Transfer", accent:"#f0a060", subLabel:"Synergy Direct" },
             { id:"webform", label:"Webform Opener", accent:"#c8f060", subLabel:"Inbound Fill" },
+            { id:"rebuttals", label:"Opening Rebuttals", accent:"#a78bfa", subLabel:"Early Objections" },
           ].map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
               style={{ display:"flex", flexDirection:"column", padding:"14px 20px", border:"none", borderBottom:`2px solid ${activeTab===tab.id ? tab.accent : "transparent"}`, background:"transparent", cursor:"pointer", transition:"all 0.15s", marginBottom:-1 }}
@@ -866,7 +1020,7 @@ export default function ScriptsPage({ agent }) {
 
         {/* Script content */}
         <div style={{ flex:1, overflow:"auto", display:"flex" }}>
-          {activeTab === "live" ? <LiveTransferScript agent={agent} /> : <WebformScript agent={agent} />}
+          {activeTab === "live" ? <LiveTransferScript agent={agent} /> : activeTab === "webform" ? <WebformScript agent={agent} /> : <OpeningRebuttals />}
         </div>
       </div>
     </>
