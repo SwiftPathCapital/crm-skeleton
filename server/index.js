@@ -715,7 +715,7 @@ app.post('/api/application-requests/:id/approve', requireAuth, async (req, res) 
       'https://www.signwell.com/api/v1/document_templates/documents',
       {
         template_id: templateId,
-        recipients: [{ id: '1', email: request.client_email, name: request.contact_name || request.client_email, placeholder_name: 'Signer 1' }],
+        recipients: [{ id: '1', email: request.client_email, name: request.contact_name || request.client_email, placeholder_name: 'Signature' }],
         template_fields: templateFields,
       },
       { headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' } }
@@ -738,8 +738,8 @@ app.post('/api/application-requests/:id/approve', requireAuth, async (req, res) 
     console.log(`[app-requests] approved ${request.id} — sent to ${request.client_email} doc ${documentId}`);
     res.json({ success: true, documentId });
   } catch (err) {
-    console.error('[app-requests/approve]', err.response?.data || err.message);
-    res.status(err.response?.status || 500).json({ error: err.response?.data || err.message });
+    console.error('[app-requests/approve] SignWell error', err.response?.status, JSON.stringify(err.response?.data));
+    res.status(err.response?.status || 500).json({ error: err.response?.data ?? err.message });
   }
 });
 
@@ -782,7 +782,7 @@ app.post('/api/signwell/send-for-signature', async (req, res) => {
           id: '1',
           email: clientEmail,
           name: contactName || clientEmail,
-          placeholder_name: 'Signer 1',
+          placeholder_name: 'Signature',
         }],
         template_fields: templateFields,
       },

@@ -50,7 +50,12 @@ function UCCFields({ data, onChange }) {
       <Field label="Employee Size" fieldKey="employee_size" value={data.employee_size} onChange={onChange} type="number" />
       <Field label="Revenue" fieldKey="revenue" value={data.revenue} onChange={onChange} />
 
+      <SectionHeader title="Secondary Contact" />
+      <Field label="Secondary Contact" fieldKey="secondary_contact" value={data.secondary_contact} onChange={onChange} />
+      <Field label="Title" fieldKey="secondary_title" value={data.secondary_title} onChange={onChange} />
+
       <SectionHeader title="UCC Filing" />
+      <Field label="Filing #" fieldKey="filing_number" value={data.filing_number} onChange={onChange} />
       <Field label="Filing Day" fieldKey="filing_day" value={data.filing_day} onChange={onChange} type="number" />
       <Field label="Filing Month" fieldKey="filing_month" value={data.filing_month} onChange={onChange} type="number" />
       <Field label="Filing Year" fieldKey="filing_year" value={data.filing_year} onChange={onChange} type="number" />
@@ -104,7 +109,7 @@ function WebFields({ data, onChange }) {
       <SectionHeader title="Application Info" />
       <Field label="Requested Amount" fieldKey="requested_amount" value={data.requested_amount} onChange={onChange} />
       <Field label="Why Funds" fieldKey="why_funds" value={data.why_funds} onChange={onChange} />
-      <Field label="Time in Business" fieldKey="tib" value={data.tib} onChange={onChange} />
+      <Field label="Time in Business" fieldKey="tib" value={data.tib} onChange={onChange} type="date" />
       <Field label="Monthly Deposit" fieldKey="monthly_deposit" value={data.monthly_deposit} onChange={onChange} />
       <Field label="Best Time to Call" fieldKey="best_time" value={data.best_time} onChange={onChange} />
       <Field label="FICO Score" fieldKey="fico" value={data.fico} onChange={onChange} type="number" />

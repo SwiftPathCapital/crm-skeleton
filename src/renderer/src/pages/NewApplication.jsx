@@ -132,7 +132,7 @@ export default function NewApplication({ agent }) {
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       });
       const json = await res.json();
-      if (!res.ok) alert("Approve failed: " + (json.error || res.status));
+      if (!res.ok) alert("Approve failed: " + (typeof json.error === "object" ? JSON.stringify(json.error, null, 2) : json.error || res.status));
       else await fetchRequests();
     } catch (err) {
       alert("Error: " + err.message);
@@ -325,8 +325,8 @@ export default function NewApplication({ agent }) {
                     placeholder="XXX-XX-XXXX" className={inputCls} />
                 </Field>
                 <Field label="Time in Business">
-                  <input type="text" value={form.time_in_business} onChange={e => setField("time_in_business", e.target.value)}
-                    placeholder="e.g. 3 years" className={inputCls} />
+                  <input type="date" value={form.time_in_business} onChange={e => setField("time_in_business", e.target.value)}
+                    className={inputCls} />
                 </Field>
               </div>
 
