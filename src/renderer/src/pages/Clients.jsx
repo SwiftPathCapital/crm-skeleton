@@ -133,17 +133,15 @@ export default function Clients({ agent, onDial }) {
             {clients.length} funded client{clients.length !== 1 ? "s" : ""}
           </p>
         </div>
-        {isAdmin && (
-          <button
-            onClick={openNew}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] text-sm font-semibold rounded-lg hover:opacity-90 transition-all"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            Add Client
-          </button>
-        )}
+        <button
+          onClick={openNew}
+          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] text-sm font-semibold rounded-lg hover:opacity-90 transition-all"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          Add Client
+        </button>
       </div>
 
       {/* Grid */}
@@ -169,7 +167,7 @@ export default function Clients({ agent, onDial }) {
                 key={client.id}
                 client={client}
                 agentName={agentName}
-                onClick={isAdmin ? () => openClient(client) : undefined}
+                onClick={() => openClient(client)}
                 phoneDisplay={client.phone ? (isAdmin ? client.phone : maskPhone(client.phone)) : null}
                 onDial={client.phone && onDial ? () => onDial(client.phone, client.id) : undefined}
               />
@@ -178,8 +176,8 @@ export default function Clients({ agent, onDial }) {
         </div>
       )}
 
-      {/* Side drawer — admin only */}
-      {isAdmin && modalOpen && (
+      {/* Side drawer */}
+      {modalOpen && (
         <ClientDrawer
           form={form}
           setForm={setForm}
