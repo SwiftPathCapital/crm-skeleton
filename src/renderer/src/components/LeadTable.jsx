@@ -112,12 +112,15 @@ export default function LeadTable({ leads, onSaveLead, onOpenEmailClient, onRefr
       filterAgent === "all" ||
       (filterAgent === "unassigned" ? !l.assigned_to : l.assigned_to === filterAgent);
     const q = search.toLowerCase();
+    const qDigits = q.replace(/\D/g, "");
+    const phoneDigits = (l.phone || "").replace(/\D/g, "");
     const matchSearch =
       !q ||
       l.first_name?.toLowerCase().includes(q) ||
       l.last_name?.toLowerCase().includes(q) ||
       l.company_name?.toLowerCase().includes(q) ||
-      l.phone?.includes(q) ||
+      l.phone?.toLowerCase().includes(q) ||
+      (qDigits.length >= 3 && phoneDigits.includes(qDigits)) ||
       l.state?.toLowerCase().includes(q) ||
       l.lead_vendor?.toLowerCase().includes(q);
     return matchType && matchAgent && matchSearch;
