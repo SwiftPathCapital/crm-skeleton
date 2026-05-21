@@ -1,6 +1,5 @@
 const { app, BrowserWindow, session } = require('electron')
 const { join } = require('path')
-const { spawn } = require('child_process')
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -23,18 +22,6 @@ function createWindow() {
     win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
-
-// In dev mode electron-vite loads the renderer from the Vite dev server
-// (http://localhost:5173), so we need to start the Express API server ourselves.
-let serverProcess = null;
-if (process.env['ELECTRON_RENDERER_URL']) {
-  serverProcess = spawn('node', [join(__dirname, '../../server/index.js')], {
-    stdio: 'inherit',
-    env: process.env,
-  });
-}
-
-app.on('quit', () => { if (serverProcess) serverProcess.kill(); });
 
 app.whenReady().then(() => {
   // Grant microphone access so Telnyx WebRTC getUserMedia works in Electron
