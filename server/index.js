@@ -333,6 +333,27 @@ app.post('/webhook/telnyx', verifyTelnyxSignature, async (req, res) => {
 
 // ── Zoho helpers ──────────────────────────────────────────────────────────────
 
+// In-memory folder ID cache: agentId → { inbox, sent, updatedAt }
+const folderIdCache = new Map();
+
+async function getZohoFolderIds(agentId, accessToken, accountId, apiDomain) {
+  const cached = folderIdCache.get(agentId);
+  if (cached && Date.now() - cached.updatedAt < 3_600_000) return cached;
+
+  const foldersRes = await axios.get(`${apiDomain}/api/accounts/${accountId}/folders`, {
+    headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+  });
+  const folders = foldersRes.data?.data || [];
+  console.log('[zoho/folders] available folders:', folders.map(f => `${f.folderName}(type:${f.folderType},id:${f.folderId})`).join(', '));
+  const ids = {
+    inbox:     (folders.find(f => (f.folderType || '').toLowerCase() === 'inbox'))?.folderId || null,
+    sent:      (folders.find(f => (f.folderType || '').toLowerCase() === 'sent'))?.folderId  || null,
+    updatedAt: Date.now(),
+  };
+  folderIdCache.set(agentId, ids);
+  return ids;
+}
+
 async function getZohoToken(agentId) {
   console.log('[getZohoToken] looking up agentId:', agentId, '(type:', typeof agentId, ')');
 
@@ -508,14 +529,19 @@ app.get('/api/emails/inbox', async (req, res) => {
   const { limit = 50, start = 0 } = req.query;
   try {
     const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
+    let params = { folderPath: 'Inbox', limit: Number(limit), start: Number(start) };
+    try {
+      const ids = await getZohoFolderIds(req.userId, accessToken, accountId, apiDomain);
+      if (ids.inbox) params = { folderId: ids.inbox, limit: Number(limit), start: Number(start) };
+    } catch (fe) { console.warn('[emails/inbox] folder lookup skipped:', fe.message); }
     const response = await axios.get(`${apiDomain}/api/accounts/${accountId}/messages/view`, {
       headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
-      params:  { folderPath: 'Inbox', limit: Number(limit), start: Number(start) },
+      params,
     });
     res.json(response.data);
   } catch (err) {
     console.error('[emails/inbox]', err.response?.data || err.message);
-    res.status(err.status || 500).json({ error: err.response?.data || err.message });
+    res.status(err.response?.status || err.status || 500).json({ error: err.response?.data || err.message });
   }
 });
 
@@ -524,14 +550,33 @@ app.get('/api/emails/sent', async (req, res) => {
   const { limit = 50, start = 0 } = req.query;
   try {
     const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
+    let params = { folderPath: 'Sent', limit: Number(limit), start: Number(start) };
+    try {
+      const ids = await getZohoFolderIds(req.userId, accessToken, accountId, apiDomain);
+      if (ids.sent) params = { folderId: ids.sent, limit: Number(limit), start: Number(start) };
+    } catch (fe) { console.warn('[emails/sent] folder lookup skipped:', fe.message); }
     const response = await axios.get(`${apiDomain}/api/accounts/${accountId}/messages/view`, {
       headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
-      params:  { folderPath: 'Sent', limit: Number(limit), start: Number(start) },
+      params,
     });
     res.json(response.data);
   } catch (err) {
     console.error('[emails/sent]', err.response?.data || err.message);
-    res.status(err.status || 500).json({ error: err.response?.data || err.message });
+    res.status(err.response?.status || err.status || 500).json({ error: err.response?.data || err.message });
+  }
+});
+
+// ── 4b. GET /api/emails/folders ──────────────────────────────────────────────
+app.get('/api/emails/folders', async (req, res) => {
+  try {
+    const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
+    const foldersRes = await axios.get(`${apiDomain}/api/accounts/${accountId}/folders`, {
+      headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+    });
+    res.json(foldersRes.data);
+  } catch (err) {
+    console.error('[emails/folders]', err.response?.data || err.message);
+    res.status(err.response?.status || err.status || 500).json({ error: err.response?.data || err.message });
   }
 });
 
@@ -568,7 +613,7 @@ app.post('/api/emails/send', async (req, res) => {
     res.json({ success: true, messageId: zohoMessageId });
   } catch (err) {
     console.error('[emails/send]', err.response?.data || err.message);
-    res.status(err.status || 500).json({ error: err.response?.data || err.message });
+    res.status(err.response?.status || err.status || 500).json({ error: err.response?.data || err.message });
   }
 });
 
