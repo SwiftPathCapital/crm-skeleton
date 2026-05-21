@@ -232,19 +232,20 @@ export default function EmailClient({ initialCompose = null, initialEmailId = nu
     }
   }, [initialEmailId, emails, loading]);
 
-  async function loadEmails() {
+  async function loadEmails(overrideFolder) {
+    const activeFolder = overrideFolder || folder;
     setLoading(true);
     try {
       // Use Zoho API for inbox / sent when connected
-      if (zohoConnected && userId && (folder === "inbox" || folder === "sent")) {
-        const endpoint = folder === "sent" ? "/api/emails/sent" : "/api/emails/inbox";
+      if (zohoConnected && userId && (activeFolder === "inbox" || activeFolder === "sent")) {
+        const endpoint = activeFolder === "sent" ? "/api/emails/sent" : "/api/emails/inbox";
         const token = await getAuthToken();
         const res = await fetch(`${API_BASE}${endpoint}?limit=50`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         if (res.ok) {
           const json = await res.json();
-          const msgs = (json.data || []).map((zm) => mapZohoMessage(zm, folder));
+          const msgs = (json.data || []).map((zm) => mapZohoMessage(zm, activeFolder));
           setEmails(msgs.length > 0 ? msgs : []);
           return;
         }
@@ -285,7 +286,8 @@ export default function EmailClient({ initialCompose = null, initialEmailId = nu
         return;
       }
       setShowCompose(false);
-      if (folder === "sent") loadEmails();
+      setFolder("sent");
+      loadEmails("sent");
       return;
     }
 
