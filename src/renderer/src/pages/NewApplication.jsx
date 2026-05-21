@@ -27,20 +27,27 @@ function fmt(iso) {
   return new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+const EMPTY_FORM = {
+  contact_name: "", business_name: "", client_email: "", deal_id: "",
+  phone: "", dba: "", business_address: "", owner_address: "",
+  ein: "", time_in_business: "", dob: "", ssn: "",
+};
+
 export default function NewApplication({ agent }) {
-  const { userId, getAuthToken } = useApp();
-  const isAdmin = agent?.role === "admin";
+  const { userId, agent: ctxAgent, getAuthToken } = useApp();
+  const resolvedAgent = agent || ctxAgent;
+  const isAdmin = resolvedAgent?.role === "admin";
 
   const [requests,   setRequests]   = useState([]);
   const [deals,      setDeals]      = useState([]);
   const [agentMap,   setAgentMap]   = useState({});
   const [loading,    setLoading]    = useState(true);
 
-  const [form,       setForm]       = useState({ contact_name: "", business_name: "", client_email: "", deal_id: "" });
+  const [form,       setForm]       = useState(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [submitMsg,  setSubmitMsg]  = useState(null);
 
-  const [rejectTarget, setRejectTarget] = useState(null); // { id, note }
+  const [rejectTarget, setRejectTarget] = useState(null);
   const [rejecting,    setRejecting]    = useState(false);
   const [approving,    setApproving]    = useState(null);
 
@@ -92,17 +99,25 @@ export default function NewApplication({ agent }) {
     setSubmitting(true);
     setSubmitMsg(null);
     const { error } = await supabase.from("application_requests").insert({
-      agent_id:      userId,
-      contact_name:  form.contact_name.trim(),
-      business_name: form.business_name.trim(),
-      client_email:  form.client_email.trim(),
-      deal_id:       form.deal_id || null,
+      agent_id:         userId,
+      contact_name:     form.contact_name.trim(),
+      business_name:    form.business_name.trim(),
+      client_email:     form.client_email.trim(),
+      deal_id:          form.deal_id || null,
+      phone:            form.phone.trim(),
+      dba:              form.dba.trim(),
+      business_address: form.business_address.trim(),
+      owner_address:    form.owner_address.trim(),
+      ein:              form.ein.trim(),
+      time_in_business: form.time_in_business.trim(),
+      dob:              form.dob.trim(),
+      ssn:              form.ssn.trim(),
     });
     if (error) {
       setSubmitMsg({ ok: false, msg: error.message });
     } else {
       setSubmitMsg({ ok: true, msg: "Submitted — waiting for admin approval." });
-      setForm({ contact_name: "", business_name: "", client_email: "", deal_id: "" });
+      setForm(EMPTY_FORM);
       await fetchRequests();
     }
     setSubmitting(false);
@@ -154,7 +169,6 @@ export default function NewApplication({ agent }) {
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6 flex-shrink-0">
         <div>
           <h1 className="text-white text-2xl font-bold tracking-tight">Applications</h1>
@@ -178,7 +192,7 @@ export default function NewApplication({ agent }) {
               <div className="flex flex-col gap-3">
                 {pending.map(r => (
                   <div key={r.id} className="bg-[#0d1017] border border-amber-500/20 rounded-xl p-5">
-                    <div className="flex items-start justify-between gap-4 flex-wrap">
+                    <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
                       <div className="min-w-0">
                         <p className="text-white font-semibold text-sm">
                           {r.contact_name} — {r.business_name}
@@ -239,6 +253,18 @@ export default function NewApplication({ agent }) {
                         </div>
                       )}
                     </div>
+
+                    {/* Detail grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-1.5 pt-3 border-t border-[#1e2130]">
+                      <DetailRow label="Phone"      value={r.phone} />
+                      <DetailRow label="DBA"        value={r.dba} />
+                      <DetailRow label="EIN"        value={r.ein} />
+                      <DetailRow label="DOB"        value={r.dob} />
+                      <DetailRow label="SSN"        value={r.ssn ? "••••••" + r.ssn.slice(-4) : ""} />
+                      <DetailRow label="Time in Biz" value={r.time_in_business} />
+                      <DetailRow label="Biz Address" value={r.business_address} span />
+                      <DetailRow label="Owner Address" value={r.owner_address} span />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -250,56 +276,87 @@ export default function NewApplication({ agent }) {
         <section>
           <SectionTitle>New Application Request</SectionTitle>
           <div className="bg-[#0d1017] border border-[#1e2130] rounded-xl p-6">
-            <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-4">
-              <Field label="Contact / Owner Name" required>
-                <input
-                  type="text"
-                  value={form.contact_name}
-                  onChange={e => setField("contact_name", e.target.value)}
-                  placeholder="John Smith"
-                  className={inputCls}
-                  required
-                />
-              </Field>
+            <form onSubmit={handleSubmit} className="space-y-5">
 
-              <Field label="Business Name" required>
-                <input
-                  type="text"
-                  value={form.business_name}
-                  onChange={e => setField("business_name", e.target.value)}
-                  placeholder="Acme LLC"
-                  className={inputCls}
-                  required
-                />
-              </Field>
+              {/* Row 1 */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Owner / Contact Name" required>
+                  <input type="text" value={form.contact_name} onChange={e => setField("contact_name", e.target.value)}
+                    placeholder="John Smith" className={inputCls} required />
+                </Field>
+                <Field label="Business Name" required>
+                  <input type="text" value={form.business_name} onChange={e => setField("business_name", e.target.value)}
+                    placeholder="Acme LLC" className={inputCls} required />
+                </Field>
+              </div>
 
-              <Field label="Client Email" required>
-                <input
-                  type="email"
-                  value={form.client_email}
-                  onChange={e => setField("client_email", e.target.value)}
-                  placeholder="client@example.com"
-                  className={inputCls}
-                  required
-                />
-              </Field>
+              {/* Row 2 */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Client Email" required>
+                  <input type="email" value={form.client_email} onChange={e => setField("client_email", e.target.value)}
+                    placeholder="client@example.com" className={inputCls} required />
+                </Field>
+                <Field label="Phone">
+                  <input type="tel" value={form.phone} onChange={e => setField("phone", e.target.value)}
+                    placeholder="(555) 555-5555" className={inputCls} />
+                </Field>
+              </div>
 
-              <Field label="Link to Deal (optional)">
-                <select
-                  value={form.deal_id}
-                  onChange={e => setField("deal_id", e.target.value)}
-                  className={inputCls}
-                >
-                  <option value="">— None —</option>
-                  {deals.map(d => (
-                    <option key={d.id} value={d.id}>
-                      {d.contact_name || d.business_name || d.id.slice(0, 8)}
-                    </option>
-                  ))}
-                </select>
-              </Field>
+              {/* Row 3 */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="DBA (Doing Business As)">
+                  <input type="text" value={form.dba} onChange={e => setField("dba", e.target.value)}
+                    placeholder="Trading name if different" className={inputCls} />
+                </Field>
+                <Field label="EIN">
+                  <input type="text" value={form.ein} onChange={e => setField("ein", e.target.value)}
+                    placeholder="12-3456789" className={inputCls} />
+                </Field>
+              </div>
 
-              <div className="col-span-2 flex items-center gap-4 pt-2">
+              {/* Row 4 */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <Field label="Date of Birth">
+                  <input type="text" value={form.dob} onChange={e => setField("dob", e.target.value)}
+                    placeholder="MM/DD/YYYY" className={inputCls} />
+                </Field>
+                <Field label="SSN">
+                  <input type="text" value={form.ssn} onChange={e => setField("ssn", e.target.value)}
+                    placeholder="XXX-XX-XXXX" className={inputCls} />
+                </Field>
+                <Field label="Time in Business">
+                  <input type="text" value={form.time_in_business} onChange={e => setField("time_in_business", e.target.value)}
+                    placeholder="e.g. 3 years" className={inputCls} />
+                </Field>
+              </div>
+
+              {/* Row 5 */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Business Address">
+                  <input type="text" value={form.business_address} onChange={e => setField("business_address", e.target.value)}
+                    placeholder="123 Main St, City, ST 00000" className={inputCls} />
+                </Field>
+                <Field label="Owner Address">
+                  <input type="text" value={form.owner_address} onChange={e => setField("owner_address", e.target.value)}
+                    placeholder="123 Home St, City, ST 00000" className={inputCls} />
+                </Field>
+              </div>
+
+              {/* Row 6 */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Link to Deal (optional)">
+                  <select value={form.deal_id} onChange={e => setField("deal_id", e.target.value)} className={inputCls}>
+                    <option value="">— None —</option>
+                    {deals.map(d => (
+                      <option key={d.id} value={d.id}>
+                        {d.contact_name || d.business_name || d.id.slice(0, 8)}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+
+              <div className="flex items-center gap-4 pt-2">
                 <button
                   type="submit"
                   disabled={submitting || !form.contact_name.trim() || !form.business_name.trim() || !form.client_email.trim()}
@@ -337,6 +394,7 @@ export default function NewApplication({ agent }) {
                     {isAdmin && <Th>Agent</Th>}
                     <Th>Contact</Th>
                     <Th>Business</Th>
+                    <Th>EIN</Th>
                     <Th>Client Email</Th>
                     <Th>Status</Th>
                     <Th>Submitted</Th>
@@ -349,6 +407,7 @@ export default function NewApplication({ agent }) {
                       {isAdmin && <Td>{agentMap[r.agent_id] || "—"}</Td>}
                       <Td>{r.contact_name || "—"}</Td>
                       <Td>{r.business_name || "—"}</Td>
+                      <Td><span className="text-[#8892a4]">{r.ein || "—"}</span></Td>
                       <Td><span className="text-[#8892a4]">{r.client_email}</span></Td>
                       <Td>
                         <div className="flex flex-col gap-0.5">
@@ -393,6 +452,16 @@ function Field({ label, children, required }) {
         {label}{required && <span className="text-[#c9a84c] ml-0.5">*</span>}
       </label>
       {children}
+    </div>
+  );
+}
+
+function DetailRow({ label, value, span }) {
+  if (!value) return null;
+  return (
+    <div className={span ? "col-span-2" : ""}>
+      <span className="text-[#4a5568] text-[10px] uppercase tracking-wider">{label}: </span>
+      <span className="text-[#8892a4] text-xs">{value}</span>
     </div>
   );
 }

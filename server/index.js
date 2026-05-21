@@ -701,8 +701,14 @@ app.post('/api/application-requests/:id/approve', async (req, res) => {
 
   try {
     const templateFields = [];
-    if (request.business_name) templateFields.push({ api_id: 'business-name', value: request.business_name });
-    if (request.contact_name)  templateFields.push({ api_id: 'owner-name',    value: request.contact_name });
+    if (request.business_name)    templateFields.push({ api_id: 'business-name',    value: request.business_name });
+    if (request.contact_name)     templateFields.push({ api_id: 'owner-name',       value: request.contact_name });
+    if (request.dba)              templateFields.push({ api_id: 'dba',              value: request.dba });
+    if (request.business_address) templateFields.push({ api_id: 'business-address', value: request.business_address });
+    if (request.owner_address)    templateFields.push({ api_id: 'owner-address',    value: request.owner_address });
+    if (request.ein)              templateFields.push({ api_id: 'ein',              value: request.ein });
+    if (request.time_in_business) templateFields.push({ api_id: 'tib',             value: request.time_in_business });
+    if (request.dob)              templateFields.push({ api_id: 'dob',              value: request.dob });
 
     const swRes = await axios.post(
       'https://www.signwell.com/api/v1/document_templates/documents',

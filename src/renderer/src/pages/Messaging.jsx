@@ -15,7 +15,7 @@ function GroupIcon({ className = "w-4 h-4" }) {
   );
 }
 
-export default function Messaging() {
+export default function Messaging({ onUnreadChange }) {
   const { userId, agent } = useApp();
   const isAdmin = agent?.role === "admin";
 
@@ -153,6 +153,11 @@ export default function Messaging() {
 
     return () => { if (channel) supabase.removeChannel(channel); };
   }, [activeConv, userId]);
+
+  useEffect(() => {
+    const dmTotal = Object.values(unreadDm).reduce((s, n) => s + n, 0);
+    onUnreadChange?.(dmTotal + unreadGroups.size);
+  }, [unreadDm, unreadGroups]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });

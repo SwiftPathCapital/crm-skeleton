@@ -126,7 +126,7 @@ const adminItems = [
   },
 ];
 
-export default function Sidebar({ activeView, setActiveView, softphoneOpen, agent }) {
+export default function Sidebar({ activeView, setActiveView, softphoneOpen, agent, badges = {} }) {
   const userRole = agent?.role || "agent";
 
   async function handleLogout() {
@@ -159,38 +159,54 @@ export default function Sidebar({ activeView, setActiveView, softphoneOpen, agen
 
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         <p className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider px-3 mb-2">Navigation</p>
-        {navItems.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => setActiveView(item.id)}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
-              (item.id === "softphone" ? softphoneOpen : activeView === item.id)
-                ? "bg-[#1e2d4a] text-[#c9a84c] border border-[#2a3f6a]"
-                : "text-[#8892a4] hover:bg-[#161b27] hover:text-white"
-            }`}
-          >
-            {item.icon}
-            {item.label}
-          </button>
-        ))}
+        {navItems.map((item) => {
+          const badge = badges[item.id] || 0;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setActiveView(item.id)}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
+                (item.id === "softphone" ? softphoneOpen : activeView === item.id)
+                  ? "bg-[#1e2d4a] text-[#c9a84c] border border-[#2a3f6a]"
+                  : "text-[#8892a4] hover:bg-[#161b27] hover:text-white"
+              }`}
+            >
+              {item.icon}
+              <span className="flex-1 text-left">{item.label}</span>
+              {badge > 0 && (
+                <span className="flex-shrink-0 min-w-[20px] h-5 rounded-full bg-[#c9a84c] text-[#080b10] text-[10px] font-bold flex items-center justify-center px-1">
+                  {badge > 99 ? "99+" : badge}
+                </span>
+              )}
+            </button>
+          );
+        })}
 
         {userRole === "admin" && (
           <>
             <p className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider px-3 mt-6 mb-2">Admin</p>
-            {adminItems.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => setActiveView(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
-                  activeView === item.id
-                    ? "bg-[#2d1e4a] text-[#c9a84c] border border-[#4a2d6a]"
-                    : "text-[#8892a4] hover:bg-[#161b27] hover:text-white"
-                }`}
-              >
-                {item.icon}
-                {item.label}
-              </button>
-            ))}
+            {adminItems.map((item) => {
+              const badge = badges[item.id] || 0;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveView(item.id)}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
+                    activeView === item.id
+                      ? "bg-[#2d1e4a] text-[#c9a84c] border border-[#4a2d6a]"
+                      : "text-[#8892a4] hover:bg-[#161b27] hover:text-white"
+                  }`}
+                >
+                  {item.icon}
+                  <span className="flex-1 text-left">{item.label}</span>
+                  {badge > 0 && (
+                    <span className="flex-shrink-0 min-w-[20px] h-5 rounded-full bg-[#c9a84c] text-[#080b10] text-[10px] font-bold flex items-center justify-center px-1">
+                      {badge > 99 ? "99+" : badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </>
         )}
       </nav>

@@ -85,9 +85,28 @@ function AppShell() {
   const [softphoneDial,    setSoftphoneDial]    = useState(null); // { phone, clientId }
   const [leads,            setLeads]            = useState([]);
   const [leadsLoading,     setLeadsLoading]     = useState(false);
+  const [pendingAppsCount, setPendingAppsCount] = useState(0);
+  const [unreadMsgCount,   setUnreadMsgCount]   = useState(0);
 
   useEffect(() => {
     if (agent) fetchLeads();
+  }, [agent]);
+
+  useEffect(() => {
+    if (!agent || agent.role !== "admin") return;
+
+    const fetchPending = () =>
+      supabase.from("application_requests").select("id", { count: "exact", head: true })
+        .eq("status", "pending")
+        .then(({ count }) => setPendingAppsCount(count || 0));
+
+    fetchPending();
+
+    const ch = supabase.channel("pending-apps-badge")
+      .on("postgres_changes", { event: "*", schema: "public", table: "application_requests" }, fetchPending)
+      .subscribe();
+
+    return () => supabase.removeChannel(ch);
   }, [agent]);
 
   const fetchLeads = async () => {
@@ -167,6 +186,10 @@ function AppShell() {
           setActiveView(view);
         }}
         agent={agent}
+        badges={{
+          "new-application": pendingAppsCount,
+          "messaging": unreadMsgCount,
+        }}
       />
 
       <SoftPhone
@@ -226,9 +249,8 @@ function AppShell() {
           <CalendarPage agent={agent} />
         </PageSlot>
 
-        {/* No padding — iframe fills the slot edge-to-edge */}
-        <PageSlot active={activeView === "new-application"}>
-          <NewApplication />
+        <PageSlot active={activeView === "new-application"} padded>
+          <NewApplication agent={agent} />
         </PageSlot>
 
         <PageSlot active={activeView === "settings"} padded>
@@ -236,7 +258,7 @@ function AppShell() {
         </PageSlot>
 
         <PageSlot active={activeView === "messaging"} padded>
-          <Messaging />
+          <Messaging onUnreadChange={setUnreadMsgCount} />
         </PageSlot>
       </main>
     </div>
