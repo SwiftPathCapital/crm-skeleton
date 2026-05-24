@@ -59,15 +59,6 @@ const navItems = [
     ),
   },
   {
-    id: "softphone",
-    label: "SoftPhone",
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
-      </svg>
-    ),
-  },
-  {
     id: "new-application",
     label: "Applications",
     icon: (
@@ -126,7 +117,7 @@ const adminItems = [
   },
 ];
 
-export default function Sidebar({ activeView, setActiveView, softphoneOpen, agent, badges = {} }) {
+export default function Sidebar({ activeView, setActiveView, agent, badges = {} }) {
   const userRole = agent?.role || "agent";
 
   async function handleLogout() {
@@ -166,7 +157,7 @@ export default function Sidebar({ activeView, setActiveView, softphoneOpen, agen
               key={item.id}
               onClick={() => setActiveView(item.id)}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
-                (item.id === "softphone" ? softphoneOpen : activeView === item.id)
+                activeView === item.id
                   ? "bg-[#1e2d4a] text-[#c9a84c] border border-[#2a3f6a]"
                   : "text-[#8892a4] hover:bg-[#161b27] hover:text-white"
               }`}

@@ -9,7 +9,6 @@ import DealPipeline from "./pages/DealPipeline";
 import Clients from "./pages/Clients";
 import ScriptsPage from "./pages/ScriptsPage";
 import EmailClient from "./pages/EmailClient";
-import SoftPhone from "./pages/SoftPhone";
 import CalendarPage from "./pages/CalendarPage";
 import NewApplication from "./pages/NewApplication";
 import Settings from "./pages/Settings";
@@ -81,8 +80,6 @@ function AppShell() {
 
   const [activeView,       setActiveView]       = useState("my-leads");
   const [emailClientProps, setEmailClientProps] = useState({});
-  const [softphoneOpen,    setSoftphoneOpen]    = useState(false);
-  const [softphoneDial,    setSoftphoneDial]    = useState(null); // { phone, clientId }
   const [leads,            setLeads]            = useState([]);
   const [leadsLoading,     setLeadsLoading]     = useState(false);
   const [pendingAppsCount, setPendingAppsCount] = useState(0);
@@ -155,11 +152,6 @@ function AppShell() {
     }
   }
 
-  function dialFromRecord(phone, clientId) {
-    setSoftphoneDial({ phone, clientId });
-    setSoftphoneOpen(true);
-  }
-
   function openEmailClient(props = {}) {
     setEmailClientProps(props);
     setActiveView("email-client");
@@ -179,9 +171,7 @@ function AppShell() {
     <div className="flex h-screen bg-[#080b10] text-white overflow-hidden font-sans">
       <Sidebar
         activeView={activeView}
-        softphoneOpen={softphoneOpen}
         setActiveView={(view) => {
-          if (view === "softphone") { setSoftphoneOpen(prev => !prev); return; }
           if (view !== "email-client") setEmailClientProps({});
           setActiveView(view);
         }}
@@ -190,14 +180,6 @@ function AppShell() {
           "new-application": pendingAppsCount,
           "messaging": unreadMsgCount,
         }}
-      />
-
-      <SoftPhone
-        agent={agent}
-        visible={softphoneOpen}
-        onClose={() => setSoftphoneOpen(false)}
-        dialTarget={softphoneDial}
-        onDialConsumed={() => setSoftphoneDial(null)}
       />
 
       {/* All page views are always mounted; only the active one is visible.
@@ -242,7 +224,7 @@ function AppShell() {
         </PageSlot>
 
         <PageSlot active={activeView === "clients"} padded>
-          <Clients agent={agent} onDial={dialFromRecord} />
+          <Clients agent={agent} />
         </PageSlot>
 
         <PageSlot active={activeView === "calendar"} padded>

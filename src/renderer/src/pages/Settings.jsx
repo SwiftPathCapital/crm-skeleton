@@ -133,169 +133,6 @@ function useSaveState() {
   return { saving, saved, wrap };
 }
 
-// ── 1. Phone Settings ─────────────────────────────────────────────────────────
-
-function PhoneSection({ raw, upsert }) {
-  const dids   = parseJson(raw.phone_dids, []);
-  const [agentList, setAgentList] = useState([]);
-  const [newDid,    setNewDid]    = useState({ number: "", label: "", assignedTo: "", callerId: "" });
-  const [adding,    setAdding]    = useState(false);
-  const { saving, saved, wrap }   = useSaveState();
-
-  useEffect(() => {
-    supabase.from("agents").select("id, full_name").then(({ data }) => setAgentList(data || []));
-  }, []);
-
-  async function addDid() {
-    if (!newDid.number.trim()) return;
-    const entry = { id: Date.now().toString(), ...newDid };
-    await wrap(async () => {
-      await upsert({ phone_dids: JSON.stringify([...dids, entry]) });
-      // Sync to agents.did so SoftPhone picks it up
-      if (entry.assignedTo) {
-        await supabase.from("agents").update({ did: entry.number }).eq("id", entry.assignedTo);
-      }
-    });
-    setNewDid({ number: "", label: "", assignedTo: "", callerId: "" });
-    setAdding(false);
-  }
-
-  async function removeDid(id) {
-    const removed = dids.find(d => d.id === id);
-    await upsert({ phone_dids: JSON.stringify(dids.filter((d) => d.id !== id)) });
-    // Clear agents.did if this DID was assigned
-    if (removed?.assignedTo) {
-      await supabase.from("agents").update({ did: null }).eq("id", removed.assignedTo);
-    }
-  }
-
-  async function patchDid(id, field, value) {
-    const prev = dids.find(d => d.id === id);
-    const updated = dids.map((d) => d.id === id ? { ...d, [field]: value } : d);
-    await upsert({ phone_dids: JSON.stringify(updated) });
-
-    if (field === "assignedTo") {
-      const number = prev?.number;
-      // Assign DID to new agent
-      if (value && number) {
-        await supabase.from("agents").update({ did: number }).eq("id", value);
-      }
-      // Clear DID from the previous agent
-      if (prev?.assignedTo && prev.assignedTo !== value) {
-        await supabase.from("agents").update({ did: null }).eq("id", prev.assignedTo);
-      }
-    }
-    if (field === "number" && prev?.assignedTo) {
-      // Number changed — update agents.did with the new number
-      await supabase.from("agents").update({ did: value }).eq("id", prev.assignedTo);
-    }
-  }
-
-  return (
-    <div>
-      <SectionHeader title="Phone Settings" description="Manage DIDs and assign to agents. Assigning a DID here updates the agent's active caller ID in the SoftPhone immediately." />
-
-      <Card className="mb-4">
-        <div className="px-5 py-4 border-b border-[#1e2130] flex items-center justify-between">
-          <CardTitle>DID Numbers</CardTitle>
-          <button
-            onClick={() => setAdding(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#1e2d4a] text-[#c9a84c] border border-[#2a3f6a] hover:bg-[#26376e] transition-all"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            Add DID
-          </button>
-        </div>
-
-        {dids.length === 0 && !adding ? (
-          <div className="px-5 py-10 text-center text-[#4a5568] text-sm">No DIDs configured yet.</div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[#1e2130]">
-                {["Number", "Label", "Assigned To", "Caller ID", ""].map((h) => (
-                  <th key={h} className="text-left px-4 py-2.5 text-[10px] font-semibold text-[#4a5568] uppercase tracking-wider">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {dids.map((d) => (
-                <tr key={d.id} className="border-b border-[#1e2130] last:border-0 hover:bg-[#080b10]/60">
-                  <td className="px-4 py-2.5 font-mono text-white">{d.number}</td>
-                  <td className="px-4 py-2.5">
-                    <input
-                      defaultValue={d.label}
-                      onBlur={(e) => patchDid(d.id, "label", e.target.value)}
-                      className="bg-transparent border-b border-transparent hover:border-[#1e2130] focus:border-[#c9a84c] px-1 py-0.5 text-sm text-[#8892a4] outline-none w-32 transition-colors"
-                    />
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <select
-                      value={d.assignedTo || ""}
-                      onChange={(e) => patchDid(d.id, "assignedTo", e.target.value)}
-                      className="bg-[#080b10] border border-[#1e2130] rounded px-2 py-1 text-xs text-[#8892a4] focus:outline-none focus:border-[#c9a84c]/50"
-                    >
-                      <option value="">Unassigned</option>
-                      {agentList.map((a) => <option key={a.id} value={a.id}>{a.full_name}</option>)}
-                    </select>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <input
-                      defaultValue={d.callerId}
-                      onBlur={(e) => patchDid(d.id, "callerId", e.target.value)}
-                      className="bg-transparent border-b border-transparent hover:border-[#1e2130] focus:border-[#c9a84c] px-1 py-0.5 text-sm text-[#8892a4] font-mono outline-none w-36 transition-colors"
-                    />
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <button onClick={() => removeDid(d.id)} className="text-[#4a5568] hover:text-red-400 transition-colors">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
-                  </td>
-                </tr>
-              ))}
-
-              {adding && (
-                <tr className="border-t border-[#c9a84c]/20 bg-[#c9a84c]/5">
-                  <td className="px-4 py-2.5">
-                    <input value={newDid.number} onChange={(e) => setNewDid((p) => ({ ...p, number: e.target.value }))}
-                      placeholder="+15551234567" className="bg-[#080b10] border border-[#1e2130] rounded px-2 py-1.5 text-sm text-white font-mono outline-none focus:border-[#c9a84c]/50 w-36" />
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <input value={newDid.label} onChange={(e) => setNewDid((p) => ({ ...p, label: e.target.value }))}
-                      placeholder="Label" className="bg-[#080b10] border border-[#1e2130] rounded px-2 py-1.5 text-sm text-white outline-none focus:border-[#c9a84c]/50 w-28" />
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <select value={newDid.assignedTo} onChange={(e) => setNewDid((p) => ({ ...p, assignedTo: e.target.value }))}
-                      className="bg-[#080b10] border border-[#1e2130] rounded px-2 py-1.5 text-xs text-white outline-none focus:border-[#c9a84c]/50">
-                      <option value="">Unassigned</option>
-                      {agentList.map((a) => <option key={a.id} value={a.id}>{a.full_name}</option>)}
-                    </select>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <input value={newDid.callerId} onChange={(e) => setNewDid((p) => ({ ...p, callerId: e.target.value }))}
-                      placeholder="+15551234567" className="bg-[#080b10] border border-[#1e2130] rounded px-2 py-1.5 text-sm text-white font-mono outline-none focus:border-[#c9a84c]/50 w-36" />
-                  </td>
-                  <td className="px-4 py-2.5 flex items-center gap-2">
-                    <button onClick={addDid} disabled={saving} className="px-3 py-1.5 rounded text-xs font-semibold bg-[#c9a84c] text-[#080b10] hover:opacity-90 disabled:opacity-40">
-                      {saving ? "…" : "Add"}
-                    </button>
-                    <button onClick={() => setAdding(false)} className="px-3 py-1.5 rounded text-xs text-[#8892a4] hover:text-white">Cancel</button>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        )}
-        {saved && <p className="px-5 pb-3 text-xs text-emerald-400">Saved!</p>}
-      </Card>
-    </div>
-  );
-}
-
 // ── 2. Call Settings ──────────────────────────────────────────────────────────
 
 function CallSection({ raw, upsert }) {
@@ -414,124 +251,6 @@ function CallSection({ raw, upsert }) {
   );
 }
 
-// ── 3. Agent Settings ─────────────────────────────────────────────────────────
-
-function AgentSection({ raw }) {
-  const [agents,   setAgents]   = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [sipCreds, setSipCreds] = useState({});
-  const [expanded, setExpanded] = useState(null);
-  const { saving, saved, wrap } = useSaveState();
-  const dids = parseJson(raw.phone_dids, []);
-
-  useEffect(() => {
-    supabase.from("agents").select("id, full_name, email, role, sip_username, sip_password, did").order("full_name")
-      .then(({ data }) => {
-        setAgents(data || []);
-        // Seed creds from agents table (the source of truth)
-        const creds = {};
-        (data || []).forEach(a => {
-          creds[a.id] = { username: a.sip_username || "", password: a.sip_password || "" };
-        });
-        setSipCreds(creds);
-        setLoading(false);
-      });
-  }, []);
-
-  function getCred(agentId, field) {
-    return sipCreds[agentId]?.[field] || "";
-  }
-
-  function patchCred(agentId, field, value) {
-    setSipCreds((prev) => ({ ...prev, [agentId]: { ...prev[agentId], [field]: value } }));
-  }
-
-  async function saveSip() {
-    // Write directly to agents table — this is what the SoftPhone reads
-    await wrap(async () => {
-      await Promise.all(
-        Object.entries(sipCreds).map(([agentId, creds]) =>
-          supabase.from("agents").update({
-            sip_username: creds.username || null,
-            sip_password: creds.password || null,
-          }).eq("id", agentId)
-        )
-      );
-    });
-  }
-
-  function agentDids(agentId) {
-    const agent = agents.find(a => a.id === agentId);
-    // Show DID from agents table (source of truth), fall back to phone_dids setting
-    if (agent?.did) return agent.did;
-    return dids.filter((d) => d.assignedTo === agentId).map((d) => d.number).join(", ") || "None";
-  }
-
-  return (
-    <div>
-      <SectionHeader title="Agent Settings" description="Manage SIP credentials per agent. Changes save directly to the agents table and take effect on the agent's next SoftPhone reconnect." />
-
-      {loading ? (
-        <div className="flex items-center justify-center h-32">
-          <div className="w-5 h-5 border-2 border-[#c9a84c] border-t-transparent rounded-full animate-spin" />
-        </div>
-      ) : (
-        <Card>
-          <div className="px-5 py-4 border-b border-[#1e2130] flex items-center justify-between">
-            <CardTitle>Agents ({agents.length})</CardTitle>
-            <SaveButton saving={saving} saved={saved} onClick={saveSip} />
-          </div>
-
-          <div className="divide-y divide-[#1e2130]">
-            {agents.map((a) => (
-              <div key={a.id}>
-                <div
-                  className="flex items-center gap-4 px-5 py-3.5 cursor-pointer hover:bg-[#080b10]/50 transition-colors"
-                  onClick={() => setExpanded(expanded === a.id ? null : a.id)}
-                >
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#c9a84c] to-[#e8c96d] flex items-center justify-center text-[#080b10] text-xs font-bold flex-shrink-0">
-                    {a.full_name?.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2) || "??"}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white text-sm font-medium">{a.full_name}</p>
-                    <p className="text-[#4a5568] text-xs">{a.email}</p>
-                  </div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${a.role === "admin" ? "bg-[#c9a84c]/15 text-[#c9a84c]" : "bg-[#1e2d4a] text-[#8892a4]"}`}>
-                    {a.role}
-                  </span>
-                  <div className="text-xs text-[#4a5568] w-36 truncate text-right">
-                    DID: {agentDids(a.id)}
-                  </div>
-                  <svg className={`w-4 h-4 text-[#4a5568] flex-shrink-0 transition-transform ${expanded === a.id ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </div>
-
-                {expanded === a.id && (
-                  <div className="px-5 pb-4 bg-[#080b10]/30 border-t border-[#1e2130]">
-                    <p className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider my-3">SIP Credentials</p>
-                    <div className="grid grid-cols-3 gap-3">
-                      <Field label="SIP Username">
-                        <TextInput value={getCred(a.id, "username")} onChange={(v) => patchCred(a.id, "username", v)} placeholder="user2800" />
-                      </Field>
-                      <Field label="SIP Password">
-                        <TextInput type="password" value={getCred(a.id, "password")} onChange={(v) => patchCred(a.id, "password", v)} placeholder="••••••••" />
-                      </Field>
-                      <Field label="SIP Domain">
-                        <TextInput value={getCred(a.id, "domain")} onChange={(v) => patchCred(a.id, "domain", v)} placeholder="sip.telnyx.com" />
-                      </Field>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-    </div>
-  );
-}
-
 // ── 4. Campaign Settings ──────────────────────────────────────────────────────
 
 const TIMEZONES = [
@@ -630,14 +349,12 @@ function CampaignSection({ raw, upsert }) {
 
 function IntegrationsSection({ raw, upsert }) {
   const { zohoConnected, setZohoConnected, userId, disconnectZoho } = useApp();
-  const [telnyxKey,   setTelnyxKey]   = useState(raw.telnyx_api_key  || "");
   const [vicidialUrl, setVicidialUrl] = useState(raw.vicidial_url    || "");
   const [webhookUrl,  setWebhookUrl]  = useState(raw.webhook_url     || "");
-  const [showKey,     setShowKey]     = useState(false);
   const { saving, saved, wrap } = useSaveState();
 
   async function saveIntegrations() {
-    await wrap(() => upsert({ telnyx_api_key: telnyxKey, vicidial_url: vicidialUrl, webhook_url: webhookUrl }));
+    await wrap(() => upsert({ vicidial_url: vicidialUrl, webhook_url: webhookUrl }));
   }
 
   function connectZoho() {
@@ -704,27 +421,6 @@ function IntegrationsSection({ raw, upsert }) {
       <Card className="p-5">
         <CardTitle>API Credentials & URLs</CardTitle>
         <div className="space-y-4 mb-5">
-          <Field label="Telnyx API Key" hint="⚠ Stored for reference only — the server reads TELNYX_API_KEY from Railway environment variables. Changing this has no effect on the running server.">
-            <div className="relative">
-              <TextInput
-                type={showKey ? "text" : "password"}
-                value={telnyxKey}
-                onChange={setTelnyxKey}
-                placeholder="KEY0••••••••••••••••••••••"
-              />
-              <button
-                onClick={() => setShowKey((s) => !s)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#4a5568] hover:text-[#8892a4]"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  {showKey
-                    ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                    : <><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></>
-                  }
-                </svg>
-              </button>
-            </div>
-          </Field>
           <Field label="VICIdial URL" hint="Base URL for your VICIdial instance">
             <TextInput value={vicidialUrl} onChange={setVicidialUrl} placeholder="https://dialer.yourcompany.com" />
           </Field>
@@ -870,29 +566,11 @@ function BrandingSection({ raw, upsert }) {
 
 const SECTIONS = [
   {
-    id: "phone",
-    label: "Phone Settings",
-    icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-      </svg>
-    ),
-  },
-  {
     id: "call",
     label: "Call Settings",
     icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-      </svg>
-    ),
-  },
-  {
-    id: "agents",
-    label: "Agent Settings",
-    icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
       </svg>
     ),
   },
@@ -929,7 +607,7 @@ const SECTIONS = [
 
 export default function Settings() {
   const { agent } = useApp();
-  const [activeSection, setActiveSection] = useState("phone");
+  const [activeSection, setActiveSection] = useState("call");
   const [raw,           setRaw]           = useState({});
   const [loading,       setLoading]       = useState(true);
   const [error,         setError]         = useState(null);
@@ -981,9 +659,7 @@ export default function Settings() {
   function renderSection() {
     const props = { raw, upsert };
     switch (activeSection) {
-      case "phone":        return <PhoneSection        {...props} />;
       case "call":         return <CallSection         {...props} />;
-      case "agents":       return <AgentSection        raw={raw} />;
       case "campaign":     return <CampaignSection     {...props} />;
       case "integrations": return <IntegrationsSection {...props} />;
       case "branding":     return <BrandingSection     {...props} />;
