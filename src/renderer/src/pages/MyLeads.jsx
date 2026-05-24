@@ -214,7 +214,11 @@ export default function MyLeads({ leads, onSaveLead, onRefresh, onOpenEmailClien
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-white text-2xl font-bold tracking-tight">My Leads</h1>
-          <p className="text-[#4a5568] text-sm mt-1">Click any row to expand and edit lead details.</p>
+          <p className="text-[#4a5568] text-sm mt-1">
+            {agent?.role === "admin"
+              ? "Click any row to expand and edit lead details."
+              : "Your pipeline is shown by default. Search to find unassigned leads."}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <button

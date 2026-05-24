@@ -82,7 +82,7 @@ function SelectBox({ checked, indeterminate, onToggle }) {
 }
 
 export default function LeadTable({ leads, onSaveLead, onOpenEmailClient, onRefresh }) {
-  const { agent } = useApp();
+  const { agent, userId } = useApp();
   const isAdmin = agent?.role === "admin";
 
   const [expandedId,    setExpandedId]    = useState(null);
@@ -105,8 +105,16 @@ export default function LeadTable({ leads, onSaveLead, onOpenEmailClient, onRefr
       .then(({ data }) => setAgentsList(data || []));
   }, [isAdmin]);
 
+  const searching = search.trim().length > 0;
+
   const filtered = leads.filter((l) => {
     const matchType = filterType === "all" || l.lead_type === filterType;
+
+    // Agents with no search: show only their own pipeline
+    if (!isAdmin && !searching) {
+      return l.assigned_to === userId && matchType;
+    }
+
     const matchAgent =
       !isAdmin ||
       filterAgent === "all" ||
@@ -115,7 +123,6 @@ export default function LeadTable({ leads, onSaveLead, onOpenEmailClient, onRefr
     const qDigits = q.replace(/\D/g, "");
     const phoneDigits = (l.phone || "").replace(/\D/g, "");
     const matchSearch =
-      !q ||
       l.first_name?.toLowerCase().includes(q) ||
       l.last_name?.toLowerCase().includes(q) ||
       l.company_name?.toLowerCase().includes(q) ||
@@ -235,7 +242,11 @@ export default function LeadTable({ leads, onSaveLead, onOpenEmailClient, onRefr
         )}
 
         <div className="text-[#4a5568] text-xs ml-auto">
-          {filtered.length} lead{filtered.length !== 1 ? "s" : ""}
+          {!isAdmin && !searching ? (
+            <span>{filtered.length} in pipeline</span>
+          ) : (
+            <span>{filtered.length} lead{filtered.length !== 1 ? "s" : ""}</span>
+          )}
           {totalSelected > 0 && (
             <span className="ml-2 text-[#c9a84c] font-semibold">· {totalSelected} selected</span>
           )}
@@ -271,8 +282,18 @@ export default function LeadTable({ leads, onSaveLead, onOpenEmailClient, onRefr
           <tbody>
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={colSpan} className="text-center text-[#4a5568] py-12 text-sm">
-                  No leads found.
+                <td colSpan={colSpan} className="text-center py-16">
+                  {!isAdmin && !searching ? (
+                    <div className="flex flex-col items-center gap-3">
+                      <svg className="w-10 h-10 text-[#1e2130]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                      <p className="text-[#4a5568] text-sm font-medium">Your pipeline is empty</p>
+                      <p className="text-[#2d3748] text-xs max-w-xs">Search by business name, contact, or phone number above to find and claim unassigned leads.</p>
+                    </div>
+                  ) : (
+                    <p className="text-[#4a5568] text-sm">No leads found.</p>
+                  )}
                 </td>
               </tr>
             )}
