@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useApp } from "../context/AppContext";
 import LeadTable from "../components/LeadTable";
@@ -39,35 +39,125 @@ function Section({ title, children }) {
   );
 }
 
+// ── CSV parser (handles quoted fields with commas inside) ─────────────────────
+function parseCSVRow(line) {
+  const result = [];
+  let cur = "";
+  let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQ && line[i + 1] === '"') { cur += '"'; i++; }
+      else inQ = !inQ;
+    } else if (ch === ',' && !inQ) {
+      result.push(cur.trim());
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  result.push(cur.trim());
+  return result;
+}
+
+function parseCSV(text) {
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim().split('\n');
+  if (lines.length < 2) return [];
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i].trim()) rows.push(parseCSVRow(lines[i]));
+  }
+  return rows;
+}
+
+// ── Vendor column mapping (by index — two "Title" columns exist) ──────────────
+// Expected order: Business(Debtor) | Primary Contact | Title | Contact Address |
+//                 Secondary Contact | Title | Secured Party(Lender) | State | Filing Date | Filing #
+function parseFilingDate(raw) {
+  if (!raw) return {};
+  // Try MM/DD/YYYY or M/D/YYYY
+  let m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return { filing_month: +m[1], filing_day: +m[2], filing_year: +m[3] };
+  // Try YYYY-MM-DD
+  m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return { filing_month: +m[2], filing_day: +m[3], filing_year: +m[1] };
+  return {};
+}
+
+function rowToLead(cols, vendorName, userId) {
+  const [
+    businessDebtor,   // 0
+    primaryContact,   // 1
+    primaryTitle,     // 2
+    contactAddress,   // 3
+    secondaryContact, // 4
+    secondaryTitle,   // 5
+    securedParty,     // 6
+    state,            // 7
+    filingDate,       // 8
+    filingNumber,     // 9
+  ] = cols;
+
+  // Split primary contact into first/last
+  const nameParts = (primaryContact || "").trim().split(/\s+/);
+  const first_name = nameParts[0] || null;
+  const last_name  = nameParts.length > 1 ? nameParts.slice(1).join(" ") : null;
+
+  return {
+    lead_type:          "ucc",
+    status:             "New",
+    company_name:       businessDebtor    || null,
+    name:               primaryContact    || null,
+    first_name,
+    last_name,
+    title:              primaryTitle      || null,
+    address:            contactAddress    || null,
+    secondary_contact:  secondaryContact  || null,
+    secondary_title:    secondaryTitle    || null,
+    sec_partyname:      securedParty      || null,
+    state:              state             || null,
+    filing_number:      filingNumber      || null,
+    lead_vendor:        vendorName        || null,
+    assigned_to:        userId,
+    created_at:         new Date().toISOString(),
+    ...parseFilingDate(filingDate),
+  };
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 export default function MyLeads({ leads, onSaveLead, onRefresh, onOpenEmailClient }) {
   const { agent, userId } = useApp();
+
+  // Add Lead drawer
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [form, setForm] = useState(EMPTY);
-  const [saving, setSaving] = useState(false);
+  const [form, setForm]             = useState(EMPTY);
+  const [saving, setSaving]         = useState(false);
+
+  // Bulk upload
+  const fileRef                              = useRef();
+  const [uploadPreview, setUploadPreview]    = useState(null); // { rows, vendorName }
+  const [uploading, setUploading]            = useState(false);
+  const [uploadVendor, setUploadVendor]      = useState("");
 
   const f = (key, val) => setForm(p => ({ ...p, [key]: val }));
 
-  function openDrawer() {
-    setForm(EMPTY);
-    setDrawerOpen(true);
-  }
-
+  // ── Add single lead ─────────────────────────────────────────────────────────
   async function handleAdd() {
     if (!form.phone.trim() && !form.first_name.trim() && !form.company_name.trim()) return;
     setSaving(true);
     try {
       const { error } = await supabase.from("leads").insert({
         lead_type:    form.lead_type,
-        first_name:   form.first_name  || null,
-        last_name:    form.last_name   || null,
+        first_name:   form.first_name   || null,
+        last_name:    form.last_name    || null,
         company_name: form.company_name || null,
-        phone:        form.phone       || null,
-        email:        form.email       || null,
-        address:      form.address     || null,
-        city:         form.city        || null,
-        state:        form.state       || null,
-        zip:          form.zip         || null,
-        lead_vendor:  form.lead_vendor || null,
+        phone:        form.phone        || null,
+        email:        form.email        || null,
+        address:      form.address      || null,
+        city:         form.city         || null,
+        state:        form.state        || null,
+        zip:          form.zip          || null,
+        lead_vendor:  form.lead_vendor  || null,
         status:       form.status,
         assigned_to:  userId,
         created_at:   new Date().toISOString(),
@@ -82,9 +172,45 @@ export default function MyLeads({ leads, onSaveLead, onRefresh, onOpenEmailClien
     }
   }
 
+  // ── Bulk upload ─────────────────────────────────────────────────────────────
+  function handleFileChange(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = "";
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const rows = parseCSV(ev.target.result);
+      if (rows.length === 0) { alert("No data rows found in file."); return; }
+      setUploadPreview({ rows, fileName: file.name });
+    };
+    reader.readAsText(file);
+  }
+
+  async function handleUploadConfirm() {
+    if (!uploadPreview) return;
+    setUploading(true);
+    try {
+      const leads = uploadPreview.rows.map(cols => rowToLead(cols, uploadVendor, userId));
+      // Insert in batches of 500
+      for (let i = 0; i < leads.length; i += 500) {
+        const { error } = await supabase.from("leads").insert(leads.slice(i, i + 500));
+        if (error) throw error;
+      }
+      setUploadPreview(null);
+      setUploadVendor("");
+      onRefresh?.();
+    } catch (err) {
+      alert("Upload failed: " + err.message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
     <div className="flex flex-col h-full">
       <AnnouncementsBanner />
+
+      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-white text-2xl font-bold tracking-tight">My Leads</h1>
@@ -100,8 +226,22 @@ export default function MyLeads({ leads, onSaveLead, onRefresh, onOpenEmailClien
             </svg>
             Refresh
           </button>
+
+          {/* Bulk upload */}
+          <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleFileChange} />
           <button
-            onClick={openDrawer}
+            onClick={() => fileRef.current?.click()}
+            className="flex items-center gap-2 px-4 py-2 bg-[#1e2130] hover:bg-[#2a3040] border border-[#2a3040] text-[#8892a4] hover:text-white text-sm rounded-lg transition-all"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+            Bulk Upload
+          </button>
+
+          {/* Add single lead */}
+          <button
+            onClick={() => { setForm(EMPTY); setDrawerOpen(true); }}
             className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] text-sm font-semibold rounded-lg hover:opacity-90 transition-all"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -114,7 +254,82 @@ export default function MyLeads({ leads, onSaveLead, onRefresh, onOpenEmailClien
 
       <LeadTable leads={leads} onSaveLead={onSaveLead} onOpenEmailClient={onOpenEmailClient} onRefresh={onRefresh} />
 
-      {/* Add Lead Drawer */}
+      {/* ── Bulk Upload Preview Modal ───────────────────────────────────────── */}
+      {uploadPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6" onClick={() => setUploadPreview(null)}>
+          <div className="absolute inset-0 bg-black/60" />
+          <div
+            className="relative bg-[#0d1117] border border-[#1e2130] rounded-2xl w-full max-w-lg p-6 shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <h2 className="text-white font-semibold text-lg mb-1">Confirm Upload</h2>
+            <p className="text-[#4a5568] text-sm mb-5">
+              <span className="text-white font-medium">{uploadPreview.rows.length}</span> UCC leads found in{" "}
+              <span className="text-[#c9a84c]">{uploadPreview.fileName}</span>
+            </p>
+
+            {/* Column mapping preview */}
+            <div className="bg-[#080b10] border border-[#1e2130] rounded-xl p-4 mb-5 text-xs space-y-1.5">
+              <p className="text-[#c9a84c] font-bold uppercase tracking-widest text-[10px] mb-2">Column Mapping</p>
+              {[
+                ["Business (Debtor)",       "company_name"],
+                ["Primary Contact",         "first_name + last_name"],
+                ["Title",                   "title"],
+                ["Contact Address",         "address"],
+                ["Secondary Contact",       "secondary_contact"],
+                ["Title (2nd)",             "secondary_title"],
+                ["Secured Party (Lender)",  "sec_partyname"],
+                ["State",                   "state"],
+                ["Filing Date",             "filing_month / day / year"],
+                ["Filing #",                "filing_number"],
+              ].map(([from, to]) => (
+                <div key={from} className="flex items-center gap-2">
+                  <span className="text-[#8892a4] w-44 flex-shrink-0 truncate">{from}</span>
+                  <span className="text-[#2d3748]">→</span>
+                  <span className="text-emerald-400">{to}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Optional vendor name */}
+            <div className="mb-5">
+              <Label>Lead Vendor (optional)</Label>
+              <input
+                value={uploadVendor}
+                onChange={e => setUploadVendor(e.target.value)}
+                className={inputCls}
+                placeholder="e.g. UCC vendor name"
+              />
+            </div>
+
+            {/* Sample row */}
+            {uploadPreview.rows[0] && (
+              <div className="bg-[#080b10] border border-[#1e2130] rounded-xl p-3 mb-5">
+                <p className="text-[#4a5568] text-[10px] font-bold uppercase tracking-widest mb-1.5">First row preview</p>
+                <p className="text-white text-xs truncate">{uploadPreview.rows[0].slice(0, 4).join(" · ")}</p>
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleUploadConfirm}
+                disabled={uploading}
+                className="flex-1 py-2.5 bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] text-sm font-semibold rounded-lg hover:opacity-90 disabled:opacity-50 transition-all"
+              >
+                {uploading ? `Uploading…` : `Import ${uploadPreview.rows.length} Leads`}
+              </button>
+              <button
+                onClick={() => setUploadPreview(null)}
+                className="px-5 py-2.5 bg-[#1e2130] text-[#8892a4] text-sm rounded-lg hover:text-white transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Add Lead Drawer ─────────────────────────────────────────────────── */}
       {drawerOpen && (
         <div className="fixed inset-0 z-50 flex" onClick={() => setDrawerOpen(false)}>
           <div className="flex-1 bg-black/40" />
