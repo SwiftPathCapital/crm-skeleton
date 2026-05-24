@@ -898,6 +898,66 @@ app.post('/api/send-application', async (req, res) => {
   }
 });
 
+// ── Agent management (admin only) ────────────────────────────────────────────
+app.post('/api/agents/create', requireAuth, async (req, res) => {
+  try {
+    const { name, email, password, role, did, sip_username, sip_password } = req.body;
+    if (!name || !email || !password) return res.status(400).json({ error: 'name, email, and password are required' });
+
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.VITE_SUPABASE_URL;
+    if (!serviceKey) return res.status(500).json({ error: 'Service role key not configured' });
+
+    // Create auth user via admin API (does NOT sign in as the new user)
+    const authRes = await axios.post(
+      `${supabaseUrl}/auth/v1/admin/users`,
+      { email, password, email_confirm: true },
+      { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } }
+    );
+    const newUser = authRes.data;
+
+    // Insert agents row
+    const { data: agent, error: agentError } = await supabaseAdmin
+      .from('agents')
+      .insert({ id: newUser.id, name, email, role: role || 'agent', did: did || null, sip_username: sip_username || null, sip_password: sip_password || null })
+      .select()
+      .single();
+
+    if (agentError) {
+      // Roll back auth user if agents insert fails
+      await axios.delete(`${supabaseUrl}/auth/v1/admin/users/${newUser.id}`, {
+        headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` }
+      }).catch(() => {});
+      return res.status(500).json({ error: agentError.message });
+    }
+
+    res.json(agent);
+  } catch (err) {
+    const msg = err.response?.data?.msg || err.response?.data?.message || err.message;
+    res.status(err.response?.status || 500).json({ error: msg });
+  }
+});
+
+app.delete('/api/agents/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.VITE_SUPABASE_URL;
+
+    // Delete agents row first
+    await supabaseAdmin.from('agents').delete().eq('id', id);
+
+    // Delete auth user
+    await axios.delete(`${supabaseUrl}/auth/v1/admin/users/${id}`, {
+      headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` }
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.response?.data?.message || err.message });
+  }
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });

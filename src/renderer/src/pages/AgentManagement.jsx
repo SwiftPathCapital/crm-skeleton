@@ -1,65 +1,55 @@
-// src/renderer/src/pages/AgentManagement.jsx
 import React, { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
 
+const API_BASE = window.location?.protocol === "file:" ? "http://localhost:3001" : "";
+
 export default function AgentManagement() {
-  const [agents, setAgents] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ full_name: "", email: "", password: "", role: "agent", did: "" });
-  const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(null);
+  const [agents, setAgents]       = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [creating, setCreating]   = useState(false);
+  const [showForm, setShowForm]   = useState(false);
+  const [form, setForm]           = useState({ name: "", email: "", password: "", role: "agent", did: "", sip_username: "", sip_password: "" });
+  const [error, setError]         = useState(null);
+  const [success, setSuccess]     = useState(null);
   const [editAgent, setEditAgent] = useState(null);
-  const [editForm, setEditForm] = useState({ full_name: "", email: "", role: "agent", did: "", sip_username: "", sip_password: "" });
-  const [saving, setSaving] = useState(false);
+  const [editForm, setEditForm]   = useState({ name: "", email: "", role: "agent", did: "", sip_username: "", sip_password: "" });
+  const [saving, setSaving]       = useState(false);
   const [editError, setEditError] = useState(null);
   const [resetSent, setResetSent] = useState(false);
+  const [deleting, setDeleting]   = useState(false);
 
   useEffect(() => { fetchAgents(); }, []);
 
   async function fetchAgents() {
-    const { data } = await supabase.from("agents").select("*").order("created_at", { ascending: false });
+    const { data } = await supabase.from("agents").select("*").order("name");
     setAgents(data || []);
     setLoading(false);
   }
 
+  async function getAuthToken() {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token;
+  }
+
   async function handleCreateAgent(e) {
     e.preventDefault();
+    setCreating(true);
+    setError(null);
     try {
-      setCreating(true);
-      setError(null);
-
-      // Create auth user
-      const { data: authData, error: authError } = await supabase.auth.admin
-        ? await supabase.functions.invoke("create-agent", { body: form })
-        : { error: { message: "Admin function required" } };
-
-      // Fallback: use signUp for now (Phase 6 will use admin API)
-      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-        email: form.email,
-        password: form.password,
-        options: { data: { full_name: form.full_name } }
+      const token = await getAuthToken();
+      const res = await fetch(`${API_BASE}/api/agents/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(form),
       });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to create agent");
 
-      if (signUpError) throw signUpError;
-
-      // Insert into agents table
-      const { error: agentError } = await supabase.from("agents").insert({
-        id: signUpData.user.id,
-        full_name: form.full_name,
-        email: form.email,
-        role: form.role,
-        did: form.did || null,
-      });
-
-      if (agentError) throw agentError;
-
-      setSuccess(`Agent ${form.full_name} created successfully!`);
-      setForm({ full_name: "", email: "", password: "", role: "agent", did: "" });
+      setSuccess(`Agent ${form.name} created! They can now log into both the CRM and the dialer.`);
+      setForm({ name: "", email: "", password: "", role: "agent", did: "", sip_username: "", sip_password: "" });
       setShowForm(false);
       fetchAgents();
-      setTimeout(() => setSuccess(null), 3000);
+      setTimeout(() => setSuccess(null), 4000);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -70,10 +60,10 @@ export default function AgentManagement() {
   function openEdit(agent) {
     setEditAgent(agent);
     setEditForm({
-      full_name: agent.full_name || "",
-      email: agent.email || "",
-      role: agent.role || "agent",
-      did: agent.did || "",
+      name:         agent.name         || "",
+      email:        agent.email        || "",
+      role:         agent.role         || "agent",
+      did:          agent.did          || "",
       sip_username: agent.sip_username || "",
       sip_password: agent.sip_password || "",
     });
@@ -93,28 +83,22 @@ export default function AgentManagement() {
 
   async function handleUpdateAgent(e) {
     e.preventDefault();
+    setSaving(true);
+    setEditError(null);
     try {
-      setSaving(true);
-      setEditError(null);
-      console.log("[updateAgent] editAgent.id:", editAgent.id);
-      console.log("[updateAgent] editAgent:", editAgent);
-      const { data: updateData, error: updateError } = await supabase
+      const { error } = await supabase
         .from("agents")
         .update({
-          full_name: editForm.full_name,
-          email: editForm.email,
-          role: editForm.role,
-          did: editForm.did || null,
+          name:         editForm.name,
+          email:        editForm.email,
+          role:         editForm.role,
+          did:          editForm.did          || null,
           sip_username: editForm.sip_username || null,
           sip_password: editForm.sip_password || null,
         })
-        .eq("id", editAgent.id)
-        .select();
-      console.log("[updateAgent] data:", updateData);
-      console.log("[updateAgent] error:", updateError);
-      if (updateError) throw updateError;
-      setAgents(prev => prev.map(a => a.id === editAgent.id ? { ...a, ...editForm } : a));
-      setSuccess(`Agent ${editForm.full_name} updated successfully!`);
+        .eq("id", editAgent.id);
+      if (error) throw error;
+      setSuccess(`${editForm.name} updated.`);
       setEditAgent(null);
       fetchAgents();
       setTimeout(() => setSuccess(null), 3000);
@@ -125,12 +109,38 @@ export default function AgentManagement() {
     }
   }
 
+  async function handleDeleteAgent() {
+    if (!window.confirm(`Delete ${editAgent.name}? This removes their CRM and dialer access.`)) return;
+    setDeleting(true);
+    setEditError(null);
+    try {
+      const token = await getAuthToken();
+      const res = await fetch(`${API_BASE}/api/agents/${editAgent.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to delete agent");
+      setEditAgent(null);
+      fetchAgents();
+      setSuccess(`${editAgent.name} deleted.`);
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err) {
+      setEditError(err.message);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  const inputCls = "w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a84c] transition-colors";
+  const labelCls = "text-[#4a5568] text-xs font-semibold uppercase tracking-wider block mb-1.5";
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-white text-2xl font-bold tracking-tight">Agent Management</h1>
-          <p className="text-[#4a5568] text-sm mt-1">Create and manage agent accounts.</p>
+          <p className="text-[#4a5568] text-sm mt-1">Create and manage agent accounts across CRM and dialer.</p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
@@ -154,29 +164,31 @@ export default function AgentManagement() {
           <h2 className="text-white font-semibold mb-4">New Agent</h2>
           <form onSubmit={handleCreateAgent} className="grid grid-cols-2 gap-4">
             {[
-              { label: "Full Name", key: "full_name", type: "text", placeholder: "John Smith" },
-              { label: "Email", key: "email", type: "email", placeholder: "john@swiftpathcapital.com" },
-              { label: "Password", key: "password", type: "password", placeholder: "••••••••" },
-              { label: "DID (Phone Number)", key: "did", type: "text", placeholder: "+13055551234" },
+              { label: "Full Name",       key: "name",         type: "text",     placeholder: "John Smith" },
+              { label: "Email",           key: "email",        type: "email",    placeholder: "john@swiftpathtocapital.com" },
+              { label: "Password",        key: "password",     type: "password", placeholder: "••••••••" },
+              { label: "DID (Phone #)",   key: "did",          type: "text",     placeholder: "+13055551234" },
+              { label: "SIP Username",    key: "sip_username", type: "text",     placeholder: "john.smith" },
+              { label: "SIP Password",    key: "sip_password", type: "password", placeholder: "••••••••" },
             ].map((field) => (
               <div key={field.key}>
-                <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider block mb-2">{field.label}</label>
+                <label className={labelCls}>{field.label}</label>
                 <input
                   type={field.type}
                   value={form[field.key]}
                   onChange={(e) => setForm((p) => ({ ...p, [field.key]: e.target.value }))}
                   placeholder={field.placeholder}
-                  className="w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a84c] transition-colors"
-                  required={field.key !== "did"}
+                  className={inputCls}
+                  required={field.key === "name" || field.key === "email" || field.key === "password"}
                 />
               </div>
             ))}
             <div>
-              <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider block mb-2">Role</label>
+              <label className={labelCls}>Role</label>
               <select
                 value={form.role}
                 onChange={(e) => setForm((p) => ({ ...p, role: e.target.value }))}
-                className="w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a84c] transition-colors"
+                className={inputCls}
               >
                 <option value="agent">Agent</option>
                 <option value="admin">Admin</option>
@@ -190,18 +202,12 @@ export default function AgentManagement() {
             )}
 
             <div className="col-span-2 flex gap-3">
-              <button
-                type="submit"
-                disabled={creating}
-                className="px-6 py-2 bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] text-sm font-semibold rounded-lg hover:opacity-90 disabled:opacity-50"
-              >
+              <button type="submit" disabled={creating}
+                className="px-6 py-2 bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] text-sm font-semibold rounded-lg hover:opacity-90 disabled:opacity-50">
                 {creating ? "Creating..." : "Create Agent"}
               </button>
-              <button
-                type="button"
-                onClick={() => setShowForm(false)}
-                className="px-6 py-2 bg-[#1e2130] text-[#8892a4] text-sm rounded-lg hover:text-white transition-colors"
-              >
+              <button type="button" onClick={() => setShowForm(false)}
+                className="px-6 py-2 bg-[#1e2130] text-[#8892a4] text-sm rounded-lg hover:text-white transition-colors">
                 Cancel
               </button>
             </div>
@@ -214,7 +220,7 @@ export default function AgentManagement() {
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-[#0f1117] border-b border-[#1e2130]">
-              {["Name", "Email", "Role", "DID", "Created"].map((h) => (
+              {["Name", "Email", "Role", "DID", "SIP Username"].map((h) => (
                 <th key={h} className="text-left text-[#4a5568] font-semibold text-xs uppercase tracking-wider px-4 py-3">{h}</th>
               ))}
             </tr>
@@ -224,15 +230,12 @@ export default function AgentManagement() {
               <tr><td colSpan={5} className="text-center text-[#4a5568] py-8">Loading agents...</td></tr>
             )}
             {!loading && agents.length === 0 && (
-              <tr><td colSpan={5} className="text-center text-[#4a5568] py-8">No agents yet. Add your first agent above.</td></tr>
+              <tr><td colSpan={5} className="text-center text-[#4a5568] py-8">No agents yet.</td></tr>
             )}
             {agents.map((agent) => (
-              <tr
-                key={agent.id}
-                onClick={() => openEdit(agent)}
-                className="border-b border-[#1e2130] hover:bg-[#111520] cursor-pointer"
-              >
-                <td className="px-4 py-3 text-white font-medium">{agent.full_name}</td>
+              <tr key={agent.id} onClick={() => openEdit(agent)}
+                className="border-b border-[#1e2130] hover:bg-[#111520] cursor-pointer">
+                <td className="px-4 py-3 text-white font-medium">{agent.name}</td>
                 <td className="px-4 py-3 text-[#8892a4]">{agent.email}</td>
                 <td className="px-4 py-3">
                   <span className={`text-xs font-semibold px-2 py-1 rounded-md ${agent.role === "admin" ? "bg-purple-500/20 text-purple-400" : "bg-blue-500/20 text-blue-400"}`}>
@@ -240,25 +243,21 @@ export default function AgentManagement() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-[#8892a4] font-mono text-xs">{agent.did || "—"}</td>
-                <td className="px-4 py-3 text-[#4a5568] text-xs">{new Date(agent.created_at).toLocaleDateString()}</td>
+                <td className="px-4 py-3 text-[#8892a4] font-mono text-xs">{agent.sip_username || "—"}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
       {/* Edit Agent Modal */}
       {editAgent && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={(e) => { if (e.target === e.currentTarget) setEditAgent(null); }}
-        >
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) setEditAgent(null); }}>
           <div className="bg-[#0d1117] border border-[#1e2130] rounded-2xl p-6 w-full max-w-md shadow-2xl">
             <div className="flex items-center justify-between mb-5">
               <h2 className="text-white text-lg font-bold">Edit Agent</h2>
-              <button
-                onClick={() => setEditAgent(null)}
-                className="text-[#4a5568] hover:text-white transition-colors"
-              >
+              <button onClick={() => setEditAgent(null)} className="text-[#4a5568] hover:text-white transition-colors">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -266,31 +265,27 @@ export default function AgentManagement() {
             </div>
             <form onSubmit={handleUpdateAgent} className="flex flex-col gap-4">
               {[
-                { label: "Full Name", key: "full_name", type: "text", placeholder: "John Smith" },
-                { label: "Email", key: "email", type: "email", placeholder: "john@swiftpathcapital.com" },
-                { label: "DID (Phone Number)", key: "did", type: "text", placeholder: "+13055551234" },
-                { label: "SIP Username", key: "sip_username", type: "text", placeholder: "john.smith" },
+                { label: "Full Name",    key: "name",         type: "text",     placeholder: "John Smith" },
+                { label: "Email",        key: "email",        type: "email",    placeholder: "john@swiftpathtocapital.com" },
+                { label: "DID (Phone #)",key: "did",          type: "text",     placeholder: "+13055551234" },
+                { label: "SIP Username", key: "sip_username", type: "text",     placeholder: "john.smith" },
                 { label: "SIP Password", key: "sip_password", type: "password", placeholder: "••••••••" },
               ].map((field) => (
                 <div key={field.key}>
-                  <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider block mb-1.5">{field.label}</label>
+                  <label className={labelCls}>{field.label}</label>
                   <input
                     type={field.type}
                     value={editForm[field.key]}
                     onChange={(e) => setEditForm((p) => ({ ...p, [field.key]: e.target.value }))}
                     placeholder={field.placeholder}
-                    className="w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a84c] transition-colors"
-                    required={field.key !== "did" && field.key !== "sip_username" && field.key !== "sip_password"}
+                    className={inputCls}
+                    required={field.key === "name" || field.key === "email"}
                   />
                 </div>
               ))}
               <div>
-                <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider block mb-1.5">Role</label>
-                <select
-                  value={editForm.role}
-                  onChange={(e) => setEditForm((p) => ({ ...p, role: e.target.value }))}
-                  className="w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a84c] transition-colors"
-                >
+                <label className={labelCls}>Role</label>
+                <select value={editForm.role} onChange={(e) => setEditForm((p) => ({ ...p, role: e.target.value }))} className={inputCls}>
                   <option value="agent">Agent</option>
                   <option value="admin">Admin</option>
                 </select>
@@ -301,37 +296,32 @@ export default function AgentManagement() {
                   <p className="text-red-400 text-sm">{editError}</p>
                 </div>
               )}
-
               {resetSent && (
                 <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-4 py-3">
                   <p className="text-emerald-400 text-sm">Password reset email sent to {editAgent.email}</p>
                 </div>
               )}
 
-              <button
-                type="button"
-                onClick={handleResetPassword}
-                className="w-full py-2 bg-[#1e2130] border border-[#2d3748] text-[#8892a4] hover:text-white text-sm rounded-lg transition-colors"
-              >
+              <button type="button" onClick={handleResetPassword}
+                className="w-full py-2 bg-[#1e2130] border border-[#2d3748] text-[#8892a4] hover:text-white text-sm rounded-lg transition-colors">
                 Send Password Reset Email
               </button>
 
               <div className="flex gap-3 pt-1">
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="flex-1 py-2 bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] text-sm font-semibold rounded-lg hover:opacity-90 disabled:opacity-50 transition-all"
-                >
+                <button type="submit" disabled={saving}
+                  className="flex-1 py-2 bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] text-sm font-semibold rounded-lg hover:opacity-90 disabled:opacity-50 transition-all">
                   {saving ? "Saving..." : "Save Changes"}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setEditAgent(null)}
-                  className="px-5 py-2 bg-[#1e2130] text-[#8892a4] text-sm rounded-lg hover:text-white transition-colors"
-                >
+                <button type="button" onClick={() => setEditAgent(null)}
+                  className="px-5 py-2 bg-[#1e2130] text-[#8892a4] text-sm rounded-lg hover:text-white transition-colors">
                   Cancel
                 </button>
               </div>
+
+              <button type="button" onClick={handleDeleteAgent} disabled={deleting}
+                className="w-full py-2 bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 text-sm rounded-lg transition-colors disabled:opacity-50">
+                {deleting ? "Deleting..." : "Delete Agent"}
+              </button>
             </form>
           </div>
         </div>
