@@ -938,6 +938,27 @@ app.post('/api/agents/create', requireAuth, async (req, res) => {
   }
 });
 
+app.patch('/api/agents/:id/password', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body;
+    if (!password || password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.VITE_SUPABASE_URL;
+
+    await axios.put(
+      `${supabaseUrl}/auth/v1/admin/users/${id}`,
+      { password },
+      { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } }
+    );
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.response?.data?.message || err.message });
+  }
+});
+
 app.delete('/api/agents/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;

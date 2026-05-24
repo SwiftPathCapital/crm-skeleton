@@ -13,10 +13,13 @@ export default function AgentManagement() {
   const [success, setSuccess]     = useState(null);
   const [editAgent, setEditAgent] = useState(null);
   const [editForm, setEditForm]   = useState({ name: "", email: "", role: "agent", did: "", sip_username: "", sip_password: "" });
-  const [saving, setSaving]       = useState(false);
-  const [editError, setEditError] = useState(null);
-  const [resetSent, setResetSent] = useState(false);
-  const [deleting, setDeleting]   = useState(false);
+  const [saving, setSaving]           = useState(false);
+  const [editError, setEditError]     = useState(null);
+  const [resetSent, setResetSent]     = useState(false);
+  const [deleting, setDeleting]       = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [pwSaving, setPwSaving]       = useState(false);
+  const [pwSuccess, setPwSuccess]     = useState(false);
 
   useEffect(() => { fetchAgents(); }, []);
 
@@ -57,8 +60,34 @@ export default function AgentManagement() {
     }
   }
 
+  async function handleChangePassword() {
+    if (!newPassword.trim()) return;
+    setPwSaving(true);
+    setPwSuccess(false);
+    setEditError(null);
+    try {
+      const token = await getAuthToken();
+      const res = await fetch(`${API_BASE}/api/agents/${editAgent.id}/password`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ password: newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update password");
+      setNewPassword("");
+      setPwSuccess(true);
+      setTimeout(() => setPwSuccess(false), 3000);
+    } catch (err) {
+      setEditError(err.message);
+    } finally {
+      setPwSaving(false);
+    }
+  }
+
   function openEdit(agent) {
     setEditAgent(agent);
+    setNewPassword("");
+    setPwSuccess(false);
     setEditForm({
       name:         agent.name         || "",
       email:        agent.email        || "",
@@ -301,6 +330,29 @@ export default function AgentManagement() {
                   <p className="text-emerald-400 text-sm">Password reset email sent to {editAgent.email}</p>
                 </div>
               )}
+
+              {/* Change password */}
+              <div className="border-t border-[#1e2130] pt-4">
+                <label className={labelCls}>Change Password</label>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={e => setNewPassword(e.target.value)}
+                    placeholder="New password (min 6 chars)"
+                    className={inputCls}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleChangePassword}
+                    disabled={pwSaving || !newPassword.trim()}
+                    className="px-4 py-2 bg-[#1e2130] border border-[#2d3748] text-[#8892a4] hover:text-white text-sm rounded-lg transition-colors disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {pwSaving ? "Saving..." : "Set"}
+                  </button>
+                </div>
+                {pwSuccess && <p className="text-emerald-400 text-xs mt-1">Password updated — works for CRM and dialer.</p>}
+              </div>
 
               <button type="button" onClick={handleResetPassword}
                 className="w-full py-2 bg-[#1e2130] border border-[#2d3748] text-[#8892a4] hover:text-white text-sm rounded-lg transition-colors">
