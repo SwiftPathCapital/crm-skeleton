@@ -711,15 +711,15 @@ app.post('/api/application-requests', requireAuth, async (req, res) => {
     .insert({
       agent_id: req.userId,
       contact_name, business_name, client_email,
-      deal_id: deal_id || null,
-      phone: phone || null,
-      dba: dba || null,
-      business_address: business_address || null,
-      owner_address: owner_address || null,
-      ein: ein || null,
-      time_in_business: time_in_business || null,
-      dob: dob || null,
-      ssn: ssn || null,
+      deal_id:          deal_id          || null,
+      phone:            phone            || '',
+      dba:              dba              || '',
+      business_address: business_address || '',
+      owner_address:    owner_address    || '',
+      ein:              ein              || '',
+      time_in_business: time_in_business || '',
+      dob:              dob              || '',
+      ssn:              ssn              || '',
     })
     .select()
     .single();
