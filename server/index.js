@@ -742,6 +742,8 @@ app.post('/api/application-requests', requireAuth, async (req, res) => {
       'https://www.signwell.com/api/v1/document_templates/documents',
       {
         template_id: templateId,
+        send_email: true,
+        draft: false,
         recipients: [{ id: '1', email: client_email, name: contact_name || client_email, placeholder_name: 'funding application' }],
         template_fields: templateFields,
       },
@@ -797,6 +799,8 @@ app.post('/api/application-requests/:id/approve', async (req, res) => {
       'https://www.signwell.com/api/v1/document_templates/documents',
       {
         template_id: templateId,
+        send_email: true,
+        draft: false,
         recipients: [{ id: '1', email: request.client_email, name: request.contact_name || request.client_email, placeholder_name: 'funding application' }],
         template_fields: templateFields,
       },
