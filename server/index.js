@@ -742,7 +742,7 @@ app.post('/api/application-requests', requireAuth, async (req, res) => {
       'https://www.signwell.com/api/v1/document_templates/documents',
       {
         template_id: templateId,
-        recipients: [{ id: '1', email: client_email, name: contact_name || client_email, placeholder_name: 'Signature' }],
+        recipients: [{ id: '1', email: client_email, name: contact_name || client_email, placeholder_name: 'funding application' }],
         template_fields: templateFields,
       },
       { headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' } }
@@ -797,7 +797,7 @@ app.post('/api/application-requests/:id/approve', async (req, res) => {
       'https://www.signwell.com/api/v1/document_templates/documents',
       {
         template_id: templateId,
-        recipients: [{ id: '1', email: request.client_email, name: request.contact_name || request.client_email, placeholder_name: 'Signature' }],
+        recipients: [{ id: '1', email: request.client_email, name: request.contact_name || request.client_email, placeholder_name: 'funding application' }],
         template_fields: templateFields,
       },
       { headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' } }
@@ -864,7 +864,7 @@ app.post('/api/signwell/send-for-signature', async (req, res) => {
           id: '1',
           email: clientEmail,
           name: contactName || clientEmail,
-          placeholder_name: 'Signature',
+          placeholder_name: 'funding application',
         }],
         template_fields: templateFields,
       },
