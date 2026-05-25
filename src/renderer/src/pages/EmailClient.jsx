@@ -102,26 +102,56 @@ const folderIcons = {
 // ── Compose Modal ─────────────────────────────────────────────────────────────
 
 function ComposeModal({ onClose, onSend, initialTo = "", initialSubject = "", initialBody = "" }) {
-  const [to,      setTo]      = useState(initialTo);
-  const [cc,      setCc]      = useState("");
-  const [subject, setSubject] = useState(initialSubject);
-  const [body,    setBody]    = useState(initialBody);
-  const [sending, setSending] = useState(false);
+  const [to,        setTo]        = useState(initialTo);
+  const [cc,        setCc]        = useState("");
+  const [bcc,       setBcc]       = useState("");
+  const [showBcc,   setShowBcc]   = useState(false);
+  const [subject,   setSubject]   = useState(initialSubject);
+  const [sending,   setSending]   = useState(false);
+  const [files,     setFiles]     = useState([]);
+  const fileInputRef = React.useRef();
+  const editorRef    = React.useRef();
+
+  // Seed the editor with initialBody on mount
+  React.useEffect(() => {
+    if (editorRef.current && initialBody) {
+      editorRef.current.innerHTML = initialBody.replace(/\n/g, "<br>");
+    }
+  }, []);
+
+  function execCmd(cmd, val = null) {
+    editorRef.current?.focus();
+    document.execCommand(cmd, false, val);
+  }
+
+  function handleFiles(e) {
+    const picked = Array.from(e.target.files || []);
+    setFiles(prev => [...prev, ...picked]);
+    e.target.value = "";
+  }
+
+  function removeFile(idx) {
+    setFiles(prev => prev.filter((_, i) => i !== idx));
+  }
 
   async function handleSend() {
     if (!to.trim() || !subject.trim()) return;
     setSending(true);
-    await onSend({ to: to.trim(), cc: cc.trim(), subject: subject.trim(), body });
+    const html = editorRef.current?.innerHTML || "";
+    await onSend({ to: to.trim(), cc: cc.trim(), bcc: bcc.trim(), subject: subject.trim(), body: html, files });
     setSending(false);
   }
+
+  const toolbarBtn = "px-2 py-1 rounded text-[#8892a4] hover:bg-[#1e2130] hover:text-white transition-colors text-sm font-medium";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div
         className="relative bg-[#0d1017] border border-[#1e2130] rounded-2xl shadow-2xl flex flex-col"
-        style={{ width: 640, maxWidth: "95vw", maxHeight: "85vh" }}
+        style={{ width: 680, maxWidth: "95vw", maxHeight: "88vh" }}
       >
+        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-[#1e2130]">
           <h2 className="text-white text-base font-semibold">New Message</h2>
           <button onClick={onClose} className="text-[#4a5568] hover:text-white transition-colors">
@@ -131,50 +161,112 @@ function ComposeModal({ onClose, onSend, initialTo = "", initialSubject = "", in
           </button>
         </div>
 
-        <div className="px-5 py-3 space-y-2.5 border-b border-[#1e2130]">
+        {/* Address fields */}
+        <div className="px-5 py-3 space-y-2 border-b border-[#1e2130]">
           {[
-            { label: "To",      value: to,      set: setTo,      type: "email", placeholder: "recipient@example.com" },
-            { label: "CC",      value: cc,      set: setCc,      type: "email", placeholder: "cc@example.com" },
-            { label: "Subject", value: subject, set: setSubject, type: "text",  placeholder: "Email subject" },
-          ].map(({ label, value, set, type, placeholder }) => (
+            { label: "To",      value: to,      set: setTo,      placeholder: "recipient@example.com" },
+            { label: "CC",      value: cc,      set: setCc,      placeholder: "cc@example.com" },
+            ...(showBcc ? [{ label: "BCC", value: bcc, set: setBcc, placeholder: "bcc@example.com" }] : []),
+            { label: "Subject", value: subject, set: setSubject, placeholder: "Email subject" },
+          ].map(({ label, value, set, placeholder }) => (
             <div key={label} className="flex items-center gap-3">
-              <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wide w-16 flex-shrink-0">
-                {label}
-              </label>
+              <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wide w-16 flex-shrink-0">{label}</label>
               <input
-                type={type}
+                type="text"
                 value={value}
                 onChange={(e) => set(e.target.value)}
                 placeholder={placeholder}
                 className="flex-1 bg-transparent border-b border-[#1e2130] focus:border-[#c9a84c] py-1.5 text-sm text-white placeholder-[#4a5568] outline-none transition-colors"
               />
+              {label === "CC" && !showBcc && (
+                <button onClick={() => setShowBcc(true)} className="text-[#4a5568] hover:text-[#c9a84c] text-xs transition-colors flex-shrink-0">
+                  + BCC
+                </button>
+              )}
             </div>
           ))}
         </div>
 
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder="Write your message..."
-          className="flex-1 bg-transparent px-5 py-4 text-sm text-white placeholder-[#4a5568] outline-none resize-none"
-          style={{ minHeight: 200 }}
+        {/* Formatting toolbar */}
+        <div className="flex items-center gap-0.5 px-4 py-1.5 border-b border-[#1e2130] bg-[#080b10]">
+          <button className={toolbarBtn} onMouseDown={e => { e.preventDefault(); execCmd("bold"); }} title="Bold"><b>B</b></button>
+          <button className={toolbarBtn} onMouseDown={e => { e.preventDefault(); execCmd("italic"); }} title="Italic"><i>I</i></button>
+          <button className={toolbarBtn} onMouseDown={e => { e.preventDefault(); execCmd("underline"); }} title="Underline"><u>U</u></button>
+          <div className="w-px h-4 bg-[#1e2130] mx-1" />
+          <button className={toolbarBtn} onMouseDown={e => { e.preventDefault(); execCmd("insertUnorderedList"); }} title="Bullet list">• List</button>
+          <button className={toolbarBtn} onMouseDown={e => { e.preventDefault(); execCmd("insertOrderedList"); }} title="Numbered list">1. List</button>
+          <div className="w-px h-4 bg-[#1e2130] mx-1" />
+          <button className={toolbarBtn} onMouseDown={e => { e.preventDefault(); execCmd("justifyLeft"); }} title="Align left">≡L</button>
+          <button className={toolbarBtn} onMouseDown={e => { e.preventDefault(); execCmd("justifyCenter"); }} title="Center">≡C</button>
+          <div className="w-px h-4 bg-[#1e2130] mx-1" />
+          <button
+            className={toolbarBtn}
+            onMouseDown={e => {
+              e.preventDefault();
+              const url = prompt("URL:");
+              if (url) execCmd("createLink", url);
+            }}
+            title="Insert link"
+          >
+            🔗
+          </button>
+          <button className={toolbarBtn} onMouseDown={e => { e.preventDefault(); execCmd("removeFormat"); }} title="Clear formatting">Tx</button>
+        </div>
+
+        {/* Rich text body */}
+        <div
+          ref={editorRef}
+          contentEditable
+          suppressContentEditableWarning
+          data-placeholder="Write your message…"
+          className="flex-1 overflow-y-auto px-5 py-4 text-sm text-white outline-none"
+          style={{ minHeight: 180 }}
+          onInput={() => {}}
         />
 
+        {/* Attachments */}
+        {files.length > 0 && (
+          <div className="px-5 py-2 border-t border-[#1e2130] flex flex-wrap gap-2">
+            {files.map((f, i) => (
+              <div key={i} className="flex items-center gap-1.5 bg-[#1e2130] rounded-lg px-2.5 py-1 text-xs text-[#8892a4]">
+                <svg className="w-3 h-3 text-[#4a5568]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                </svg>
+                <span className="max-w-[140px] truncate">{f.name}</span>
+                <span className="text-[#4a5568]">({(f.size / 1024).toFixed(0)}KB)</span>
+                <button onClick={() => removeFile(i)} className="text-[#4a5568] hover:text-red-400 transition-colors ml-0.5">×</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Footer */}
         <div className="flex items-center justify-between px-5 py-3 border-t border-[#1e2130]">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg text-sm text-[#8892a4] hover:text-white hover:bg-[#1e2130] transition-all"
-          >
-            Discard
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg text-sm text-[#8892a4] hover:text-white hover:bg-[#1e2130] transition-all"
+            >
+              Discard
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-[#8892a4] hover:text-white hover:bg-[#1e2130] transition-all"
+              title="Attach files"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+              </svg>
+              Attach
+            </button>
+            <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFiles} />
+          </div>
           <button
             onClick={handleSend}
             disabled={!to.trim() || !subject.trim() || sending}
             className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
           >
-            {sending
-              ? <div className="w-4 h-4 border-2 border-[#080b10] border-t-transparent rounded-full animate-spin" />
-              : <SentIcon />}
+            {sending ? <div className="w-4 h-4 border-2 border-[#080b10] border-t-transparent rounded-full animate-spin" /> : <SentIcon />}
             {sending ? "Sending…" : "Send"}
           </button>
         </div>
@@ -266,18 +358,21 @@ export default function EmailClient({ initialCompose = null, initialEmailId = nu
     }
   }
 
-  async function handleSend({ to, cc, subject, body }) {
-    // Route through the Express proxy when Zoho is connected
+  async function handleSend({ to, cc, bcc, subject, body, files = [] }) {
     if (zohoConnected && userId) {
       try {
         const token = await getAuthToken();
+        const fd = new FormData();
+        fd.append("to", to);
+        fd.append("cc", cc || "");
+        fd.append("bcc", bcc || "");
+        fd.append("subject", subject);
+        fd.append("body", body || "");
+        files.forEach(f => fd.append("attachments", f));
         const res = await fetch(`${API_BASE}/api/emails/send`, {
-          method:  "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body:    JSON.stringify({ to, cc, subject, body }),
+          method: "POST",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: fd,
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
@@ -373,7 +468,55 @@ export default function EmailClient({ initialCompose = null, initialEmailId = nu
         await supabase.from("emails").update({ read: true }).eq("id", em.id);
       }
     }
-    setSelectedEmail({ ...em, read: true });
+    setSelectedEmail({ ...em, read: true, fullBodyLoading: true });
+
+    // Fetch full body + attachments from Zoho if connected
+    if (zohoConnected && !isSupabaseId(em.id)) {
+      try {
+        const token = await getAuthToken();
+        const res = await fetch(`${API_BASE}/api/emails/${em.id}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (res.ok) {
+          const json = await res.json();
+          const d = json.data || {};
+          setSelectedEmail(prev => ({
+            ...prev,
+            fullBodyLoading: false,
+            body:        d.content || d.summary || prev.body,
+            isHtml:      (d.mailFormat || "").toLowerCase() === "html" || (d.content || "").includes("<"),
+            attachments: d.attachments || [],
+          }));
+          return;
+        }
+      } catch { /* fall through to summary */ }
+    }
+    setSelectedEmail(prev => ({ ...prev, fullBodyLoading: false }));
+  }
+
+  async function handleDelete(em) {
+    if (!window.confirm("Delete this email?")) return;
+    if (zohoConnected && !isSupabaseId(em.id)) {
+      const token = await getAuthToken();
+      await fetch(`${API_BASE}/api/emails/${em.id}`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+    }
+    setEmails(prev => prev.filter(x => x.id !== em.id));
+    setSelectedEmail(null);
+  }
+
+  async function handleMarkUnread(em) {
+    if (zohoConnected && !isSupabaseId(em.id)) {
+      const token = await getAuthToken();
+      await fetch(`${API_BASE}/api/emails/${em.id}/unread`, {
+        method: "PATCH",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+    }
+    setEmails(prev => prev.map(x => x.id === em.id ? { ...x, read: false } : x));
+    setSelectedEmail(null);
   }
 
   const filteredEmails = emails.filter((em) => {
@@ -490,8 +633,8 @@ export default function EmailClient({ initialCompose = null, initialEmailId = nu
 
         {/* ── Panel 2: Email list ───────────────────────────────────────────── */}
         <div className="w-80 flex-shrink-0 border-r border-[#1e2130] flex flex-col">
-          <div className="p-3 border-b border-[#1e2130]">
-            <div className="relative">
+          <div className="p-3 border-b border-[#1e2130] flex items-center gap-2">
+            <div className="relative flex-1">
               <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#4a5568]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
@@ -503,6 +646,15 @@ export default function EmailClient({ initialCompose = null, initialEmailId = nu
                 className="w-full bg-[#0a0d12] border border-[#1e2130] rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-[#4a5568] focus:outline-none focus:border-[#c9a84c]/40 transition-colors"
               />
             </div>
+            <button
+              onClick={() => loadEmails()}
+              title="Refresh"
+              className="flex-shrink-0 p-1.5 rounded-lg text-[#4a5568] hover:text-white hover:bg-[#1e2130] transition-all"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
           </div>
 
           <div className="flex-1 overflow-y-auto">
@@ -602,18 +754,56 @@ export default function EmailClient({ initialCompose = null, initialEmailId = nu
                 </div>
               </div>
 
+                  {/* Body */}
               <div className="flex-1 overflow-y-auto px-6 py-5">
-                <div className="text-[#c8d0e0] text-sm leading-relaxed whitespace-pre-wrap">
-                  {selectedEmail.body}
-                </div>
+                {selectedEmail.fullBodyLoading ? (
+                  <div className="flex items-center gap-2 text-[#4a5568] text-sm">
+                    <div className="w-4 h-4 border-2 border-[#c9a84c] border-t-transparent rounded-full animate-spin" />
+                    Loading…
+                  </div>
+                ) : selectedEmail.isHtml ? (
+                  <div
+                    className="text-sm leading-relaxed prose-invert max-w-none"
+                    style={{ color: "#c8d0e0" }}
+                    dangerouslySetInnerHTML={{ __html: selectedEmail.body }}
+                  />
+                ) : (
+                  <div className="text-[#c8d0e0] text-sm leading-relaxed whitespace-pre-wrap">
+                    {selectedEmail.body}
+                  </div>
+                )}
+
+                {/* Attachments */}
+                {(selectedEmail.attachments || []).length > 0 && (
+                  <div className="mt-6 border-t border-[#1e2130] pt-4">
+                    <p className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider mb-2">
+                      Attachments ({selectedEmail.attachments.length})
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedEmail.attachments.map((att) => (
+                        <a
+                          key={att.attachmentId || att.attachmentName}
+                          href={`${API_BASE}/api/emails/${selectedEmail.id}/attachment/${att.attachmentId}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-2 bg-[#1e2130] hover:bg-[#2a3040] border border-[#2d3748] rounded-lg px-3 py-2 text-xs text-[#8892a4] hover:text-white transition-all"
+                        >
+                          <svg className="w-3.5 h-3.5 text-[#4a5568]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                          </svg>
+                          {att.attachmentName || "Attachment"}
+                          {att.size && <span className="text-[#4a5568]">({(att.size / 1024).toFixed(0)}KB)</span>}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
-              <div className="px-6 py-3 border-t border-[#1e2130] flex items-center gap-3">
+              {/* Action bar */}
+              <div className="px-6 py-3 border-t border-[#1e2130] flex items-center gap-2 flex-wrap">
                 <button
-                  onClick={() => openCompose({
-                    to:      selectedEmail.from_email,
-                    subject: `Re: ${selectedEmail.subject}`,
-                  })}
+                  onClick={() => openCompose({ to: selectedEmail.from_email, subject: `Re: ${selectedEmail.subject}` })}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[#1e2d4a] text-[#c9a84c] border border-[#2a3f6a] hover:bg-[#26376e] transition-all"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -623,15 +813,40 @@ export default function EmailClient({ initialCompose = null, initialEmailId = nu
                 </button>
                 <button
                   onClick={() => openCompose({
-                    subject: `Fwd: ${selectedEmail.subject}`,
-                    body:    `\n\n--- Forwarded message ---\nFrom: ${selectedEmail.from_email}\nDate: ${new Date(selectedEmail.sent_at).toLocaleString()}\nSubject: ${selectedEmail.subject}\n\n${selectedEmail.body}`,
+                    to:      selectedEmail.from_email,
+                    cc:      selectedEmail.to_email,
+                    subject: `Re: ${selectedEmail.subject}`,
                   })}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-[#8892a4] hover:bg-[#161b27] hover:text-white transition-all"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-[#8892a4] hover:bg-[#161b27] hover:text-white transition-all"
+                >
+                  Reply All
+                </button>
+                <button
+                  onClick={() => openCompose({
+                    subject: `Fwd: ${selectedEmail.subject}`,
+                    body:    `<br><br><div style="border-left:2px solid #4a5568;padding-left:12px;color:#8892a4;font-size:13px"><p><b>From:</b> ${selectedEmail.from_email}</p><p><b>Date:</b> ${new Date(selectedEmail.sent_at).toLocaleString()}</p><p><b>Subject:</b> ${selectedEmail.subject}</p><br>${selectedEmail.body}</div>`,
+                  })}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-[#8892a4] hover:bg-[#161b27] hover:text-white transition-all"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
                   </svg>
                   Forward
+                </button>
+                <button
+                  onClick={() => handleMarkUnread(selectedEmail)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-[#8892a4] hover:bg-[#161b27] hover:text-white transition-all"
+                >
+                  Mark Unread
+                </button>
+                <button
+                  onClick={() => handleDelete(selectedEmail)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-red-400/70 hover:bg-red-500/10 hover:text-red-400 transition-all ml-auto"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Delete
                 </button>
               </div>
             </>

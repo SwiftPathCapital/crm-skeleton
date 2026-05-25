@@ -4,8 +4,12 @@ const path = require('path');
 const axios = require('axios');
 const ws = require('ws');
 const crypto = require('crypto');
+const multer = require('multer');
+const FormData = require('form-data');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
 const fromNumber = process.env.TELNYX_PHONE_NUMBER;
 const API_KEY = process.env.TELNYX_API_KEY;
@@ -581,9 +585,9 @@ app.get('/api/emails/folders', async (req, res) => {
   }
 });
 
-// ── 5. POST /api/emails/send ──────────────────────────────────────────────────
-app.post('/api/emails/send', async (req, res) => {
-  const { to, cc, subject, body, leadId } = req.body;
+// ── 5. POST /api/emails/send (supports file attachments via multipart) ────────
+app.post('/api/emails/send', requireAuth, upload.array('attachments', 10), async (req, res) => {
+  const { to, cc, bcc, subject, body, leadId } = req.body;
   if (!to || !subject) {
     return res.status(400).json({ error: 'to and subject are required' });
   }
@@ -592,9 +596,35 @@ app.post('/api/emails/send', async (req, res) => {
       getZohoToken(req.userId),
       supabase.from('agents').select('email').eq('id', req.userId).single(),
     ]);
+
+    // Upload each attachment to Zoho and collect attachment paths
+    const attachmentPaths = [];
+    for (const file of (req.files || [])) {
+      const fd = new FormData();
+      fd.append('attach', file.buffer, { filename: file.originalname, contentType: file.mimetype });
+      const uploadRes = await axios.post(
+        `${apiDomain}/api/accounts/${accountId}/messages/attachments`,
+        fd,
+        { headers: { Authorization: `Zoho-oauthtoken ${accessToken}`, ...fd.getHeaders() } }
+      );
+      const attachPath = uploadRes.data?.data?.attachmentPath;
+      if (attachPath) attachmentPaths.push({ attachmentPath: attachPath });
+    }
+
+    const payload = {
+      fromAddress: fromEmail || agentRow?.email,
+      toAddress:   to,
+      ccAddress:   cc  || '',
+      bccAddress:  bcc || '',
+      subject,
+      content:     body || '',
+      mailFormat:  'html',
+    };
+    if (attachmentPaths.length) payload.attachments = attachmentPaths;
+
     const sendRes = await axios.post(
       `${apiDomain}/api/accounts/${accountId}/messages`,
-      { fromAddress: fromEmail || agentRow?.email, toAddress: to, ccAddress: cc || '', subject, content: body || '', mailFormat: 'plaintext' },
+      payload,
       { headers: { Authorization: `Zoho-oauthtoken ${accessToken}` } }
     );
     const zohoMessageId = sendRes.data?.data?.messageId;
@@ -615,6 +645,69 @@ app.post('/api/emails/send', async (req, res) => {
   } catch (err) {
     console.error('[emails/send]', err.response?.data || err.message);
     res.status(err.response?.status || err.status || 500).json({ error: err.response?.data || err.message });
+  }
+});
+
+// ── 5b. GET /api/emails/:messageId — full body + attachments ─────────────────
+app.get('/api/emails/:messageId', requireAuth, async (req, res) => {
+  try {
+    const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
+    const msgRes = await axios.get(
+      `${apiDomain}/api/accounts/${accountId}/messages/${req.params.messageId}`,
+      { headers: { Authorization: `Zoho-oauthtoken ${accessToken}` } }
+    );
+    res.json(msgRes.data);
+  } catch (err) {
+    console.error('[emails/:id]', err.response?.data || err.message);
+    res.status(err.response?.status || 500).json({ error: err.response?.data || err.message });
+  }
+});
+
+// ── 5c. GET /api/emails/:messageId/attachment/:attachmentId ──────────────────
+app.get('/api/emails/:messageId/attachment/:attachmentId', requireAuth, async (req, res) => {
+  try {
+    const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
+    const attRes = await axios.get(
+      `${apiDomain}/api/accounts/${accountId}/messages/${req.params.messageId}/attachments/${req.params.attachmentId}`,
+      { headers: { Authorization: `Zoho-oauthtoken ${accessToken}` }, responseType: 'stream' }
+    );
+    res.setHeader('Content-Type', attRes.headers['content-type'] || 'application/octet-stream');
+    res.setHeader('Content-Disposition', attRes.headers['content-disposition'] || 'attachment');
+    attRes.data.pipe(res);
+  } catch (err) {
+    console.error('[emails/attachment]', err.response?.data || err.message);
+    res.status(err.response?.status || 500).json({ error: err.message });
+  }
+});
+
+// ── 5d. DELETE /api/emails/:messageId ────────────────────────────────────────
+app.delete('/api/emails/:messageId', requireAuth, async (req, res) => {
+  try {
+    const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
+    await axios.delete(
+      `${apiDomain}/api/accounts/${accountId}/messages/${req.params.messageId}`,
+      { headers: { Authorization: `Zoho-oauthtoken ${accessToken}` } }
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[emails/delete]', err.response?.data || err.message);
+    res.status(err.response?.status || 500).json({ error: err.message });
+  }
+});
+
+// ── 5e. PATCH /api/emails/:messageId/unread ───────────────────────────────────
+app.patch('/api/emails/:messageId/unread', requireAuth, async (req, res) => {
+  try {
+    const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
+    await axios.put(
+      `${apiDomain}/api/accounts/${accountId}/updatemessage`,
+      { mode: 'markAsUnread', messageId: [req.params.messageId] },
+      { headers: { Authorization: `Zoho-oauthtoken ${accessToken}` } }
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[emails/unread]', err.response?.data || err.message);
+    res.status(err.response?.status || 500).json({ error: err.message });
   }
 });
 

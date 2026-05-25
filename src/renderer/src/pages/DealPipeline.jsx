@@ -17,6 +17,7 @@ const STAGES = [
 ];
 
 const EMPTY_DEAL = {
+  lead_id: null,
   contact_name: "", business_name: "", lead_type: "",
   assigned_agent_id: "", stage: "new_lead",
   notes: [], docs: [],
@@ -69,6 +70,7 @@ export default function DealPipeline({ agent }) {
     setIsNew(false);
     setForm({
       ...deal,
+      lead_id:           deal.lead_id           ?? null,
       funded_amount:     deal.funded_amount     ?? "",
       funded_date:       deal.funded_date       ?? "",
       commission_rate:   deal.commission_rate   ?? "",
@@ -145,6 +147,7 @@ export default function DealPipeline({ agent }) {
       const nowFunded    = form.stage === "funded";
 
       const payload = {
+        lead_id:           form.lead_id           || null,
         contact_name:      form.contact_name,
         business_name:     form.business_name,
         lead_type:         form.lead_type,
@@ -432,8 +435,7 @@ function DealDrawer({ form, setForm, isNew, agents, stages, newNote, setNewNote,
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
 
           <DrawerSection title="Contact Info">
-            <DrawerField label="Contact Name" value={form.contact_name} onChange={v => f("contact_name", v)} />
-            <DrawerField label="Business Name" value={form.business_name} onChange={v => f("business_name", v)} />
+            <LeadPicker form={form} setForm={setForm} />
           </DrawerSection>
 
           <DrawerSection title="Deal Info">
@@ -689,6 +691,162 @@ function DealDrawer({ form, setForm, isNew, agents, stages, newNote, setNewNote,
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Lead Picker ───────────────────────────────────────────────────────────────
+
+function LeadPicker({ form, setForm }) {
+  const [query,     setQuery]     = useState("");
+  const [results,   setResults]   = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [open,      setOpen]      = useState(false);
+  const [mode,      setMode]      = useState(form.lead_id ? "linked" : form.contact_name ? "manual" : "search");
+  const timerRef = useRef(null);
+  const wrapRef  = useRef(null);
+
+  // close dropdown on outside click
+  useEffect(() => {
+    function handle(e) { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
+
+  // debounced search
+  useEffect(() => {
+    if (mode !== "search") return;
+    clearTimeout(timerRef.current);
+    if (!query.trim()) { setResults([]); setOpen(false); return; }
+    timerRef.current = setTimeout(async () => {
+      setSearching(true);
+      const q = query.trim();
+      const { data } = await supabase
+        .from("leads")
+        .select("id, first_name, last_name, company_name, phone, email")
+        .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,company_name.ilike.%${q}%,phone.ilike.%${q}%,email.ilike.%${q}%`)
+        .limit(8);
+      setResults(data || []);
+      setOpen(true);
+      setSearching(false);
+    }, 300);
+    return () => clearTimeout(timerRef.current);
+  }, [query, mode]);
+
+  function selectLead(lead) {
+    setForm(f => ({
+      ...f,
+      lead_id:       lead.id,
+      contact_name:  [lead.first_name, lead.last_name].filter(Boolean).join(" "),
+      business_name: lead.company_name || "",
+    }));
+    setMode("linked");
+    setQuery("");
+    setResults([]);
+    setOpen(false);
+  }
+
+  function clearLead() {
+    setForm(f => ({ ...f, lead_id: null, contact_name: "", business_name: "" }));
+    setMode("search");
+    setQuery("");
+  }
+
+  function goManual() {
+    setForm(f => ({ ...f, lead_id: null }));
+    setMode("manual");
+    setOpen(false);
+    setQuery("");
+  }
+
+  const inputCls = "w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a84c]/40 transition-colors";
+
+  if (mode === "linked") {
+    return (
+      <div className="bg-[#080b10] border border-[#c9a84c]/20 rounded-lg px-3 py-2.5">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-white text-sm font-semibold truncate">{form.contact_name || "—"}</p>
+            {form.business_name && <p className="text-[#4a5568] text-xs truncate mt-0.5">{form.business_name}</p>}
+            <p className="text-[#c9a84c] text-[10px] mt-1 font-medium">Linked from CRM</p>
+          </div>
+          <button onClick={clearLead} className="text-[#4a5568] hover:text-white transition-colors flex-shrink-0 mt-0.5" title="Change contact">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === "manual") {
+    return (
+      <div className="space-y-3">
+        <DrawerField label="Contact Name" value={form.contact_name} onChange={v => setForm(f => ({ ...f, contact_name: v }))} />
+        <DrawerField label="Business Name" value={form.business_name} onChange={v => setForm(f => ({ ...f, business_name: v }))} />
+        <button onClick={() => setMode("search")} className="text-[#4a5568] hover:text-[#c9a84c] text-xs transition-colors">
+          ← Search CRM instead
+        </button>
+      </div>
+    );
+  }
+
+  // search mode
+  return (
+    <div ref={wrapRef} className="relative">
+      <DrawerLabel>Search CRM (name, phone, or email)</DrawerLabel>
+      <div className="relative">
+        <input
+          type="text"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onFocus={() => results.length > 0 && setOpen(true)}
+          placeholder="Type to search…"
+          className={inputCls}
+        />
+        {searching && (
+          <div className="absolute right-3 top-1/2 -translate-y-1/2">
+            <div className="w-3.5 h-3.5 border-2 border-[#c9a84c] border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+      </div>
+
+      {open && (
+        <div className="absolute z-50 left-0 right-0 mt-1 bg-[#0d1117] border border-[#1e2130] rounded-lg shadow-xl overflow-hidden">
+          {results.length === 0 ? (
+            <div className="px-3 py-2 text-[#4a5568] text-xs">No matches found</div>
+          ) : (
+            results.map(lead => (
+              <button
+                key={lead.id}
+                onMouseDown={() => selectLead(lead)}
+                className="w-full text-left px-3 py-2.5 hover:bg-[#111520] transition-colors border-b border-[#1e2130] last:border-0"
+              >
+                <p className="text-white text-xs font-semibold">
+                  {[lead.first_name, lead.last_name].filter(Boolean).join(" ") || "Unnamed"}
+                  {lead.company_name && <span className="text-[#4a5568] font-normal"> · {lead.company_name}</span>}
+                </p>
+                <p className="text-[#4a5568] text-[10px] mt-0.5 font-mono">
+                  {lead.phone && <span>{lead.phone}</span>}
+                  {lead.phone && lead.email && <span className="mx-1">·</span>}
+                  {lead.email && <span>{lead.email}</span>}
+                </p>
+              </button>
+            ))
+          )}
+          <button
+            onMouseDown={goManual}
+            className="w-full text-left px-3 py-2.5 text-[#c9a84c] text-xs hover:bg-[#111520] transition-colors border-t border-[#1e2130]"
+          >
+            + Not in CRM — enter manually
+          </button>
+        </div>
+      )}
+
+      <button onClick={goManual} className="mt-1.5 text-[#4a5568] hover:text-[#c9a84c] text-xs transition-colors">
+        Not in CRM? Enter manually →
+      </button>
     </div>
   );
 }
