@@ -83,8 +83,8 @@ export default function AgentLeads() {
   useEffect(() => {
     supabase
       .from("agents")
-      .select("id, full_name, role, email")
-      .order("full_name")
+      .select("id, name, role, email")
+      .order("name")
       .then(({ data }) => setAgents(data || []));
   }, []);
 
@@ -149,7 +149,7 @@ export default function AgentLeads() {
     if (error) { showToast("Error assigning lead", "error"); return; }
     setAssignedLeads((prev) => [lead, ...prev]);
     setSearchResults((prev) => prev.filter((l) => l.id !== lead.id));
-    showToast(`Lead assigned to ${selectedAgent.full_name}`);
+    showToast(`Lead assigned to ${selectedAgent.name}`);
   }
 
   return (
@@ -199,10 +199,10 @@ export default function AgentLeads() {
                       : "bg-[#1e2130] text-[#8892a4]"
                   }`}
                 >
-                  {initials(agent.full_name)}
+                  {initials(agent.name)}
                 </div>
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold truncate">{agent.full_name}</p>
+                  <p className="text-sm font-semibold truncate">{agent.name}</p>
                   <p className={`text-xs capitalize ${active ? "text-[#c9a84c]/70" : "text-[#4a5568]"}`}>
                     {agent.role}
                   </p>
@@ -230,10 +230,10 @@ export default function AgentLeads() {
               {/* Agent summary bar */}
               <div className="bg-[#0f1117] border border-[#1e2130] rounded-xl p-4 flex items-center gap-4">
                 <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#c9a84c] to-[#e8c96d] flex items-center justify-center text-[#080b10] text-sm font-bold flex-shrink-0">
-                  {initials(selectedAgent.full_name)}
+                  {initials(selectedAgent.name)}
                 </div>
                 <div className="min-w-0">
-                  <h2 className="text-white font-semibold text-lg leading-tight">{selectedAgent.full_name}</h2>
+                  <h2 className="text-white font-semibold text-lg leading-tight">{selectedAgent.name}</h2>
                   <p className="text-[#4a5568] text-sm capitalize truncate">
                     {selectedAgent.role} · {selectedAgent.email}
                   </p>

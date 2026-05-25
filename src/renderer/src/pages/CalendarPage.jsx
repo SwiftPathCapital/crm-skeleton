@@ -163,11 +163,11 @@ export default function CalendarPage({ agent }) {
     const dayEnd   = new Date(dayStr+"T23:59:59").toISOString();
     const [{ data:evData }, { data:agentsData }] = await Promise.all([
       supabase.from("calendar_events").select("*").gte("start_time",dayStart).lte("start_time",dayEnd).not("agent_id","is",null),
-      supabase.from("agents").select("id, full_name"),
+      supabase.from("agents").select("id, name"),
     ]);
     const grouped = {};
     (evData||[]).forEach(ev => {
-      const name = agentsData?.find(a=>a.id===ev.agent_id)?.full_name || "Unknown Agent";
+      const name = agentsData?.find(a=>a.id===ev.agent_id)?.name || "Unknown Agent";
       if (!grouped[ev.agent_id]) grouped[ev.agent_id] = { name, events:[] };
       grouped[ev.agent_id].events.push(ev);
     });

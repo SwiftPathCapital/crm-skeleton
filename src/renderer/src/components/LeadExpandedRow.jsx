@@ -190,7 +190,7 @@ function NotesTab({ lead }) {
     const { error } = await supabase.from("lead_comments").insert({
       lead_id: lead.id,
       agent_id: agent?.id ?? null,
-      agent_name: agent?.full_name || "Unknown",
+      agent_name: agent?.name || "Unknown",
       content: text.trim(),
     });
     if (!error) {
@@ -246,7 +246,7 @@ function NotesTab({ lead }) {
       {/* Compose */}
       <div className="flex gap-3 items-start">
         <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#c9a84c] to-[#e8c96d] flex items-center justify-center text-[#080b10] text-xs font-bold flex-shrink-0 mt-0.5">
-          {initials(agent?.full_name)}
+          {initials(agent?.name)}
         </div>
         <div className="flex-1 bg-[#0f1117] border border-[#1e2130] rounded-xl overflow-hidden focus-within:border-[#c9a84c]/50 transition-colors">
           <textarea
@@ -515,8 +515,8 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
     if (!isAdmin) return;
     supabase
       .from("agents")
-      .select("id, full_name")
-      .order("full_name")
+      .select("id, name")
+      .order("name")
       .then(({ data }) => setAgentsList(data || []));
   }, [isAdmin]);
 
@@ -654,7 +654,7 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
               >
                 <option value="">— Unassigned —</option>
                 {agentsList.map((a) => (
-                  <option key={a.id} value={a.id}>{a.full_name}</option>
+                  <option key={a.id} value={a.id}>{a.name}</option>
                 ))}
               </select>
             </div>

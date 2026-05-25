@@ -46,7 +46,7 @@ export default function Messaging({ onUnreadChange }) {
   // ── Load agents + groups ───────────────────────────────────────────────────
   useEffect(() => {
     if (!userId) return;
-    supabase.from("agents").select("id, full_name, role, email").order("full_name")
+    supabase.from("agents").select("id, name, role, email").order("name")
       .then(({ data }) => {
         const all = data || [];
         const map = {};
@@ -217,11 +217,11 @@ export default function Messaging({ onUnreadChange }) {
   // ── Derived header info ────────────────────────────────────────────────────
   const convHeader = !activeConv ? null
     : activeConv.type === "dm"
-    ? { title: activeConv.data.full_name, sub: activeConv.data.role }
+    ? { title: activeConv.data.name, sub: activeConv.data.role }
     : {
         title: activeConv.data.title,
         sub: (activeConv.data.group_chat_members || [])
-              .map(m => agentMap[m.agent_id]?.full_name?.split(" ")[0] || "")
+              .map(m => agentMap[m.agent_id]?.name?.split(" ")[0] || "")
               .filter(Boolean).join(", "),
       };
 
@@ -307,11 +307,11 @@ export default function Messaging({ onUnreadChange }) {
                   }`}
                 >
                   <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#c9a84c] to-[#e8c96d] flex items-center justify-center text-[#080b10] text-xs font-bold flex-shrink-0">
-                    {initials(a.full_name)}
+                    {initials(a.name)}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className={`text-sm font-medium truncate ${isSelected ? "text-[#c9a84c]" : "text-white"}`}>
-                      {a.full_name}
+                      {a.name}
                     </p>
                     <p className="text-[#4a5568] text-xs capitalize">{a.role}</p>
                   </div>
@@ -346,7 +346,7 @@ export default function Messaging({ onUnreadChange }) {
                 </div>
               ) : (
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#c9a84c] to-[#e8c96d] flex items-center justify-center text-[#080b10] text-xs font-bold flex-shrink-0">
-                  {initials(activeConv.data.full_name)}
+                  {initials(activeConv.data.name)}
                 </div>
               )}
               <div className="min-w-0">
@@ -368,7 +368,7 @@ export default function Messaging({ onUnreadChange }) {
                   const prev  = messages[i - 1];
                   const showName = activeConv.type === "group" && !isMe &&
                                    prev?.from_agent_id !== msg.from_agent_id;
-                  const senderName = agentMap[msg.from_agent_id]?.full_name || "Unknown";
+                  const senderName = agentMap[msg.from_agent_id]?.name || "Unknown";
 
                   return (
                     <div key={msg.id} className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}>
@@ -402,7 +402,7 @@ export default function Messaging({ onUnreadChange }) {
                   placeholder={
                     activeConv.type === "group"
                       ? `Message ${activeConv.data.title}…`
-                      : `Message ${activeConv.data.full_name}…`
+                      : `Message ${activeConv.data.name}…`
                   }
                   rows={1}
                   className="flex-1 bg-[#1e2130] border border-[#2a3040] rounded-xl px-4 py-2.5 text-sm text-white placeholder-[#4a5568] focus:outline-none focus:border-[#c9a84c] transition-colors resize-none"
@@ -484,10 +484,10 @@ export default function Messaging({ onUnreadChange }) {
                           )}
                         </div>
                         <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#c9a84c] to-[#e8c96d] flex items-center justify-center text-[#080b10] text-xs font-bold flex-shrink-0">
-                          {initials(a.full_name)}
+                          {initials(a.name)}
                         </div>
                         <div>
-                          <p className="text-white text-sm leading-tight">{a.full_name}</p>
+                          <p className="text-white text-sm leading-tight">{a.name}</p>
                           <p className="text-[#4a5568] text-xs capitalize">{a.role}</p>
                         </div>
                       </button>

@@ -55,13 +55,13 @@ export default function DealPipeline({ agent }) {
   }
 
   async function fetchAgents() {
-    const { data } = await supabase.from("agents").select("id, full_name, email");
+    const { data } = await supabase.from("agents").select("id, name, email");
     setAgents(data || []);
   }
 
   function agentName(id) {
     const a = agents.find(a => a.id === id);
-    return a ? (a.full_name || a.email) : "—";
+    return a ? (a.name || a.email) : "—";
   }
 
   function openDeal(deal) {
@@ -457,7 +457,7 @@ function DealDrawer({ form, setForm, isNew, agents, stages, newNote, setNewNote,
                 <DrawerLabel>Assigned Agent</DrawerLabel>
                 <select value={form.assigned_agent_id || ""} onChange={e => f("assigned_agent_id", e.target.value)} className={selectCls}>
                   <option value="">— Unassigned —</option>
-                  {agents.map(a => <option key={a.id} value={a.id}>{a.full_name || a.email}</option>)}
+                  {agents.map(a => <option key={a.id} value={a.id}>{a.name || a.email}</option>)}
                 </select>
               </div>
             )}

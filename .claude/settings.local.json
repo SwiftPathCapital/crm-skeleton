@@ -58,7 +58,16 @@
       "WebFetch(domain:help.dochub.com)",
       "WebFetch(domain:sign.dropbox.com)",
       "WebFetch(domain:developers.signwell.com)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(taskkill /F /IM electron.exe)",
+      "Bash(taskkill /F /IM node.exe)",
+      "Bash(netstat -ano)",
+      "Bash(findstr \":3001\")",
+      "Bash(gh run *)",
+      "WebFetch(domain:crm-skeleton-production.up.railway.app)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\({k: d.get\\(k\\) for k in ['scripts','engines','main']}, indent=2\\)\\)\")",
+      "Bash(xargs -I{} sh -c 'echo \"=== {} ===\"; cat {}')",
+      "Bash(dir \"C:\\\\Users\\\\free2\\\\OneDrive\\\\Desktop\\\\dialer-app\\\\app\")"
     ]
   }
 }

@@ -100,8 +100,8 @@ export default function LeadTable({ leads, onSaveLead, onOpenEmailClient, onRefr
     if (!isAdmin) return;
     supabase
       .from("agents")
-      .select("id, full_name")
-      .order("full_name")
+      .select("id, name")
+      .order("name")
       .then(({ data }) => setAgentsList(data || []));
   }, [isAdmin]);
 
@@ -184,7 +184,7 @@ export default function LeadTable({ leads, onSaveLead, onOpenEmailClient, onRefr
       .update({ assigned_to: assignTarget })
       .in("id", ids);
     if (!error) {
-      const agentName = agentsList.find((a) => a.id === assignTarget)?.full_name || "agent";
+      const agentName = agentsList.find((a) => a.id === assignTarget)?.name || "agent";
       setSelectedIds(new Set());
       setAssignTarget("");
       setSuccessMsg(`${ids.length} lead${ids.length !== 1 ? "s" : ""} assigned to ${agentName}`);
@@ -236,7 +236,7 @@ export default function LeadTable({ leads, onSaveLead, onOpenEmailClient, onRefr
             <option value="all">All agents</option>
             <option value="unassigned">Unassigned</option>
             {agentsList.map((a) => (
-              <option key={a.id} value={a.id}>{a.full_name}</option>
+              <option key={a.id} value={a.id}>{a.name}</option>
             ))}
           </select>
         )}
@@ -393,7 +393,7 @@ export default function LeadTable({ leads, onSaveLead, onOpenEmailClient, onRefr
           >
             <option value="">Assign to agent…</option>
             {agentsList.map((a) => (
-              <option key={a.id} value={a.id}>{a.full_name}</option>
+              <option key={a.id} value={a.id}>{a.name}</option>
             ))}
           </select>
 

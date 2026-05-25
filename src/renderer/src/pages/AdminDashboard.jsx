@@ -95,7 +95,7 @@ export default function AdminDashboard() {
       ] = await Promise.all([
         supabase.from("deals").select("id, stage, funded_amount, commission_amount, commission_rate, assigned_agent_id"),
         supabase.from("offers").select("id, deal_id, agent_id, amount, status"),
-        supabase.from("agents").select("id, full_name, email"),
+        supabase.from("agents").select("id, name, email"),
       ]);
 
       const allDeals   = deals  || [];
@@ -114,7 +114,7 @@ export default function AdminDashboard() {
       // Per-agent breakdown
       const map = {};
       allAgents.forEach(a => {
-        map[a.id] = { id: a.id, name: a.full_name || a.email, deals: 0, funded: 0, fundedAmount: 0, commissions: 0, offersSent: 0, offersValue: 0 };
+        map[a.id] = { id: a.id, name: a.name || a.email, deals: 0, funded: 0, fundedAmount: 0, commissions: 0, offersSent: 0, offersValue: 0 };
       });
 
       allDeals.forEach(d => {

@@ -124,8 +124,8 @@ export default function Sidebar({ activeView, setActiveView, agent, badges = {} 
     await supabase.auth.signOut();
   }
 
-  const initials = agent?.full_name
-    ? agent.full_name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
+  const initials = agent?.name
+    ? agent.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
     : userRole === "admin" ? "AD" : "AG";
 
   return (
@@ -141,7 +141,7 @@ export default function Sidebar({ activeView, setActiveView, agent, badges = {} 
           </div>
           <div>
             <p className="text-white text-xs font-semibold">
-              {agent?.full_name || (userRole === "admin" ? "Admin User" : "Agent")}
+              {agent?.name || (userRole === "admin" ? "Admin User" : "Agent")}
             </p>
             <p className="text-[#4a5568] text-xs capitalize">{userRole}</p>
           </div>

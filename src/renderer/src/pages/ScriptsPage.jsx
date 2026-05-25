@@ -238,9 +238,9 @@ function LiveTransferScript({ agent }) {
   const [step, setStep] = useState(0);
   const [qualState, setQualState] = useState({});
   const [dqId, setDqId] = useState(null);
-  const [agentInfo, setAgentInfo] = useState({ name: agent?.full_name || "", number:"", appUrl:"", uploadUrl:"" });
+  const [agentInfo, setAgentInfo] = useState({ name: agent?.name || "", number:"", appUrl:"", uploadUrl:"" });
   const [showSettings, setShowSettings] = useState(false);
-  const [settingsDraft, setSettingsDraft] = useState({ name: agent?.full_name || "", number:"", appUrl:"", uploadUrl:"" });
+  const [settingsDraft, setSettingsDraft] = useState({ name: agent?.name || "", number:"", appUrl:"", uploadUrl:"" });
 
   const markQual = useCallback((id, result) => {
     const newState = { ...qualState, [id]: result };
@@ -597,7 +597,7 @@ function LiveTransferScript({ agent }) {
 // ─────────────────────────────────────────────
 function WebformScript({ agent }) {
   const [step, setStep] = useState(0);
-  const [agentName, setAgentName] = useState(agent?.full_name || "");
+  const [agentName, setAgentName] = useState(agent?.name || "");
   const [agentNumber, setAgentNumber] = useState("");
   const [appUrl, setAppUrl] = useState("");
   const [uploadUrl, setUploadUrl] = useState("");

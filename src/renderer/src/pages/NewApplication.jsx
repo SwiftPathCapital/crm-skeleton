@@ -72,9 +72,9 @@ export default function NewApplication({ agent }) {
   }
 
   async function fetchAgents() {
-    const { data } = await supabase.from("agents").select("id, full_name, email");
+    const { data } = await supabase.from("agents").select("id, name, email");
     const map = {};
-    (data || []).forEach(a => { map[a.id] = a.full_name || a.email; });
+    (data || []).forEach(a => { map[a.id] = a.name || a.email; });
     setAgentMap(map);
   }
 
