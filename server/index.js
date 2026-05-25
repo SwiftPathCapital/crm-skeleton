@@ -686,6 +686,90 @@ app.delete('/api/calendar/events/:id', async (req, res) => {
   }
 });
 
+// ── POST /api/application-requests ───────────────────────────────────────────
+// Insert + send to SignWell in one step, server-side, to avoid client RLS issues.
+app.post('/api/application-requests', requireAuth, async (req, res) => {
+  const {
+    contact_name, business_name, client_email, deal_id,
+    phone, dba, business_address, owner_address,
+    ein, time_in_business, dob, ssn,
+  } = req.body;
+
+  if (!contact_name || !business_name || !client_email) {
+    return res.status(400).json({ error: 'contact_name, business_name, and client_email are required' });
+  }
+
+  const apiKey     = process.env.SIGNWELL_API_KEY;
+  const templateId = process.env.SIGNWELL_TEMPLATE_ID;
+  if (!apiKey || !templateId) {
+    return res.status(500).json({ error: 'SignWell not configured — set SIGNWELL_API_KEY and SIGNWELL_TEMPLATE_ID in Railway env vars' });
+  }
+
+  // 1. Insert record using admin client (bypasses RLS)
+  const { data: request, error: insertErr } = await supabaseAdmin
+    .from('application_requests')
+    .insert({
+      agent_id: req.userId,
+      contact_name, business_name, client_email,
+      deal_id: deal_id || null,
+      phone: phone || null,
+      dba: dba || null,
+      business_address: business_address || null,
+      owner_address: owner_address || null,
+      ein: ein || null,
+      time_in_business: time_in_business || null,
+      dob: dob || null,
+      ssn: ssn || null,
+    })
+    .select()
+    .single();
+
+  if (insertErr) return res.status(500).json({ error: insertErr.message });
+
+  // 2. Send via SignWell immediately
+  try {
+    const templateFields = [];
+    if (business_name)    templateFields.push({ api_id: 'business-name',    value: business_name });
+    if (contact_name)     templateFields.push({ api_id: 'owner-name',       value: contact_name });
+    if (dba)              templateFields.push({ api_id: 'dba',              value: dba });
+    if (business_address) templateFields.push({ api_id: 'business-address', value: business_address });
+    if (owner_address)    templateFields.push({ api_id: 'owner-address',    value: owner_address });
+    if (ein)              templateFields.push({ api_id: 'ein',              value: ein });
+    if (time_in_business) templateFields.push({ api_id: 'tib',             value: time_in_business });
+    if (dob)              templateFields.push({ api_id: 'dob',             value: dob });
+
+    const swRes = await axios.post(
+      'https://www.signwell.com/api/v1/document_templates/documents',
+      {
+        template_id: templateId,
+        recipients: [{ id: '1', email: client_email, name: contact_name || client_email, placeholder_name: 'Signature' }],
+        template_fields: templateFields,
+      },
+      { headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' } }
+    );
+
+    const documentId = swRes.data?.id || swRes.data?.document?.id || null;
+    const now        = new Date().toISOString();
+
+    await supabaseAdmin.from('application_requests').update({
+      status: 'approved', reviewed_by: req.userId, reviewed_at: now,
+      signwell_document_id: documentId, signwell_sent_at: now,
+    }).eq('id', request.id);
+
+    if (deal_id) {
+      await supabaseAdmin.from('deals').update({
+        signwell_document_id: documentId, application_sent_at: now,
+      }).eq('id', deal_id);
+    }
+
+    console.log(`[app-requests] sent to ${client_email} doc ${documentId}`);
+    res.json({ success: true, documentId, requestId: request.id });
+  } catch (err) {
+    console.error('[app-requests POST] SignWell error', err.response?.status, JSON.stringify(err.response?.data));
+    res.status(err.response?.status || 500).json({ error: err.response?.data ?? err.message });
+  }
+});
+
 // ── POST /api/application-requests/:id/approve ───────────────────────────────
 app.post('/api/application-requests/:id/approve', async (req, res) => {
 

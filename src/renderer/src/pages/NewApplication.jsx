@@ -95,42 +95,28 @@ export default function NewApplication({ agent }) {
     setSubmitting(true);
     setSubmitMsg(null);
 
-    // 1. Insert the request row
-    const { data: inserted, error: insertError } = await supabase
-      .from("application_requests")
-      .insert({
-        agent_id:         userId,
-        contact_name:     form.contact_name.trim(),
-        business_name:    form.business_name.trim(),
-        client_email:     form.client_email.trim(),
-        deal_id:          form.deal_id || null,
-        phone:            form.phone.trim(),
-        dba:              form.dba.trim(),
-        business_address: form.business_address.trim(),
-        owner_address:    form.owner_address.trim(),
-        ein:              form.ein.trim(),
-        time_in_business: form.time_in_business.trim(),
-        dob:              form.dob.trim(),
-        ssn:              form.ssn.trim(),
-      })
-      .select()
-      .single();
-
-    if (insertError) {
-      setSubmitMsg({ ok: false, msg: insertError.message });
-      setSubmitting(false);
-      return;
-    }
-
-    // 2. Fire SignWell immediately — no approval step
     try {
       const token = await getAuthToken();
-      const res = await fetch(`${API_BASE}/api/application-requests/${inserted.id}/approve`, {
+      const res = await fetch(`${API_BASE}/api/application-requests`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
+        body: JSON.stringify({
+          contact_name:     form.contact_name.trim(),
+          business_name:    form.business_name.trim(),
+          client_email:     form.client_email.trim(),
+          deal_id:          form.deal_id || null,
+          phone:            form.phone.trim(),
+          dba:              form.dba.trim(),
+          business_address: form.business_address.trim(),
+          owner_address:    form.owner_address.trim(),
+          ein:              form.ein.trim(),
+          time_in_business: form.time_in_business.trim(),
+          dob:              form.dob.trim(),
+          ssn:              form.ssn.trim(),
+        }),
       });
       const json = await res.json();
       if (!res.ok) {
