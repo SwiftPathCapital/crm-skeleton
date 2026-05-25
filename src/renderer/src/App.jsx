@@ -80,30 +80,12 @@ function AppShell() {
 
   const [activeView,       setActiveView]       = useState("my-leads");
   const [emailClientProps, setEmailClientProps] = useState({});
-  const [leads,            setLeads]            = useState([]);
-  const [leadsLoading,     setLeadsLoading]     = useState(false);
-  const [pendingAppsCount, setPendingAppsCount] = useState(0);
-  const [unreadMsgCount,   setUnreadMsgCount]   = useState(0);
+  const [leads,          setLeads]          = useState([]);
+  const [leadsLoading,   setLeadsLoading]   = useState(false);
+  const [unreadMsgCount, setUnreadMsgCount] = useState(0);
 
   useEffect(() => {
     if (agent) fetchLeads();
-  }, [agent]);
-
-  useEffect(() => {
-    if (!agent || agent.role !== "admin") return;
-
-    const fetchPending = () =>
-      supabase.from("application_requests").select("id", { count: "exact", head: true })
-        .eq("status", "pending")
-        .then(({ count }) => setPendingAppsCount(count || 0));
-
-    fetchPending();
-
-    const ch = supabase.channel("pending-apps-badge")
-      .on("postgres_changes", { event: "*", schema: "public", table: "application_requests" }, fetchPending)
-      .subscribe();
-
-    return () => supabase.removeChannel(ch);
   }, [agent]);
 
   const fetchLeads = async () => {
@@ -177,7 +159,6 @@ function AppShell() {
         }}
         agent={agent}
         badges={{
-          "new-application": pendingAppsCount,
           "messaging": unreadMsgCount,
         }}
       />

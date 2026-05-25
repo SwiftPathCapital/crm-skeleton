@@ -8,9 +8,9 @@ const API_BASE =
     : "";
 
 const STATUS_STYLES = {
-  pending:  { bg: "bg-amber-500/10 text-amber-400 border-amber-500/20",       label: "Pending"  },
-  approved: { bg: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20", label: "Approved" },
-  rejected: { bg: "bg-red-500/10 text-red-400 border-red-500/20",             label: "Rejected" },
+  approved: { bg: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20", label: "Sent" },
+  pending:  { bg: "bg-amber-500/10 text-amber-400 border-amber-500/20",       label: "Sending…" },
+  rejected: { bg: "bg-red-500/10 text-red-400 border-red-500/20",             label: "Failed" },
 };
 
 function StatusBadge({ status }) {
@@ -46,10 +46,6 @@ export default function NewApplication({ agent }) {
   const [form,       setForm]       = useState(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [submitMsg,  setSubmitMsg]  = useState(null);
-
-  const [rejectTarget, setRejectTarget] = useState(null);
-  const [rejecting,    setRejecting]    = useState(false);
-  const [approving,    setApproving]    = useState(null);
 
   useEffect(() => {
     if (!userId) return;
@@ -98,67 +94,59 @@ export default function NewApplication({ agent }) {
     if (!form.contact_name.trim() || !form.business_name.trim() || !form.client_email.trim()) return;
     setSubmitting(true);
     setSubmitMsg(null);
-    const { error } = await supabase.from("application_requests").insert({
-      agent_id:         userId,
-      contact_name:     form.contact_name.trim(),
-      business_name:    form.business_name.trim(),
-      client_email:     form.client_email.trim(),
-      deal_id:          form.deal_id || null,
-      phone:            form.phone.trim(),
-      dba:              form.dba.trim(),
-      business_address: form.business_address.trim(),
-      owner_address:    form.owner_address.trim(),
-      ein:              form.ein.trim(),
-      time_in_business: form.time_in_business.trim(),
-      dob:              form.dob.trim(),
-      ssn:              form.ssn.trim(),
-    });
-    if (error) {
-      setSubmitMsg({ ok: false, msg: error.message });
-    } else {
-      setSubmitMsg({ ok: true, msg: "Submitted — waiting for admin approval." });
-      setForm(EMPTY_FORM);
-      await fetchRequests();
+
+    // 1. Insert the request row
+    const { data: inserted, error: insertError } = await supabase
+      .from("application_requests")
+      .insert({
+        agent_id:         userId,
+        contact_name:     form.contact_name.trim(),
+        business_name:    form.business_name.trim(),
+        client_email:     form.client_email.trim(),
+        deal_id:          form.deal_id || null,
+        phone:            form.phone.trim(),
+        dba:              form.dba.trim(),
+        business_address: form.business_address.trim(),
+        owner_address:    form.owner_address.trim(),
+        ein:              form.ein.trim(),
+        time_in_business: form.time_in_business.trim(),
+        dob:              form.dob.trim(),
+        ssn:              form.ssn.trim(),
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      setSubmitMsg({ ok: false, msg: insertError.message });
+      setSubmitting(false);
+      return;
     }
+
+    // 2. Fire SignWell immediately — no approval step
+    try {
+      const token = await getAuthToken();
+      const res = await fetch(`${API_BASE}/api/application-requests/${inserted.id}/approve`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setSubmitMsg({ ok: false, msg: typeof json.error === "object" ? JSON.stringify(json.error) : json.error || `Server error ${res.status}` });
+      } else {
+        setSubmitMsg({ ok: true, msg: "Application sent to client for signature." });
+        setForm(EMPTY_FORM);
+        await fetchRequests();
+      }
+    } catch (err) {
+      setSubmitMsg({ ok: false, msg: err.message });
+    }
+
     setSubmitting(false);
   }
 
-  async function handleApprove(id) {
-    setApproving(id);
-    try {
-      const token = await getAuthToken();
-      const res = await fetch(`${API_BASE}/api/application-requests/${id}/approve`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      });
-      const json = await res.json();
-      if (!res.ok) alert("Approve failed: " + (typeof json.error === "object" ? JSON.stringify(json.error, null, 2) : json.error || res.status));
-      else await fetchRequests();
-    } catch (err) {
-      alert("Error: " + err.message);
-    }
-    setApproving(null);
-  }
-
-  async function handleReject() {
-    if (!rejectTarget) return;
-    setRejecting(true);
-    try {
-      const token = await getAuthToken();
-      const res = await fetch(`${API_BASE}/api/application-requests/${rejectTarget.id}/reject`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ note: rejectTarget.note }),
-      });
-      if (res.ok) { setRejectTarget(null); await fetchRequests(); }
-      else { const j = await res.json(); alert("Reject failed: " + (j.error || res.status)); }
-    } catch (err) {
-      alert("Error: " + err.message);
-    }
-    setRejecting(false);
-  }
-
-  const pending    = requests.filter(r => r.status === "pending");
   const myRequests = isAdmin ? requests : requests.filter(r => r.agent_id === userId);
 
   if (loading) return (
@@ -171,110 +159,18 @@ export default function NewApplication({ agent }) {
     <div className="flex flex-col h-full overflow-y-auto">
       <div className="flex items-center justify-between mb-6 flex-shrink-0">
         <div>
-          <h1 className="text-white text-2xl font-bold tracking-tight">Applications</h1>
+          <h1 className="text-white text-2xl font-bold tracking-tight">Send Application</h1>
           <p className="text-[#4a5568] text-sm mt-1">
-            {isAdmin
-              ? `${pending.length} pending approval${pending.length !== 1 ? "s" : ""}`
-              : "Submit an MCA application for admin approval"}
+            Fill out the form and the client will receive a SignWell signing link immediately.
           </p>
         </div>
       </div>
 
       <div className="flex flex-col gap-8 pb-8">
 
-        {/* ── Admin: Pending approvals ──────────────────────────────────── */}
-        {isAdmin && (
-          <section>
-            <SectionTitle>Pending Approvals</SectionTitle>
-            {pending.length === 0 ? (
-              <EmptyCard>No pending requests — all caught up.</EmptyCard>
-            ) : (
-              <div className="flex flex-col gap-3">
-                {pending.map(r => (
-                  <div key={r.id} className="bg-[#0d1017] border border-amber-500/20 rounded-xl p-5">
-                    <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
-                      <div className="min-w-0">
-                        <p className="text-white font-semibold text-sm">
-                          {r.contact_name} — {r.business_name}
-                        </p>
-                        <p className="text-[#4a5568] text-xs mt-0.5">
-                          {r.client_email} · Submitted by{" "}
-                          <span className="text-[#8892a4]">{agentMap[r.agent_id] || "Unknown"}</span>{" "}
-                          · {fmt(r.created_at)}
-                        </p>
-                      </div>
-
-                      {rejectTarget?.id === r.id ? (
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <input
-                            type="text"
-                            value={rejectTarget.note}
-                            onChange={e => setRejectTarget(t => ({ ...t, note: e.target.value }))}
-                            placeholder="Reason (optional)"
-                            autoFocus
-                            className="bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-1.5 text-white text-xs w-44 focus:outline-none focus:border-red-500/40 transition-colors"
-                          />
-                          <button
-                            onClick={handleReject}
-                            disabled={rejecting}
-                            className="px-3 py-1.5 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-xs font-semibold hover:bg-red-500/30 disabled:opacity-40 transition-all"
-                          >
-                            {rejecting ? "…" : "Confirm Reject"}
-                          </button>
-                          <button
-                            onClick={() => setRejectTarget(null)}
-                            className="px-3 py-1.5 bg-[#1e2130] text-[#8892a4] rounded-lg text-xs hover:text-white transition-colors"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <button
-                            onClick={() => handleApprove(r.id)}
-                            disabled={approving === r.id}
-                            className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold hover:bg-emerald-500/30 disabled:opacity-40 transition-all"
-                          >
-                            {approving === r.id ? (
-                              <div className="w-3 h-3 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
-                            ) : (
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                              </svg>
-                            )}
-                            Approve &amp; Send
-                          </button>
-                          <button
-                            onClick={() => setRejectTarget({ id: r.id, note: "" })}
-                            className="px-4 py-1.5 bg-red-500/10 text-red-400 border border-red-500/20 rounded-lg text-xs font-semibold hover:bg-red-500/20 transition-all"
-                          >
-                            Reject
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Detail grid */}
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-1.5 pt-3 border-t border-[#1e2130]">
-                      <DetailRow label="Phone"      value={r.phone} />
-                      <DetailRow label="DBA"        value={r.dba} />
-                      <DetailRow label="EIN"        value={r.ein} />
-                      <DetailRow label="DOB"        value={r.dob} />
-                      <DetailRow label="SSN"        value={r.ssn ? "••••••" + r.ssn.slice(-4) : ""} />
-                      <DetailRow label="Time in Biz" value={r.time_in_business} />
-                      <DetailRow label="Biz Address" value={r.business_address} span />
-                      <DetailRow label="Owner Address" value={r.owner_address} span />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        )}
-
-        {/* ── Submit form ───────────────────────────────────────────────── */}
+        {/* ── Submit form ─────────────────────────────────────────────────── */}
         <section>
-          <SectionTitle>New Application Request</SectionTitle>
+          <SectionTitle>Application Details</SectionTitle>
           <div className="bg-[#0d1017] border border-[#1e2130] rounded-xl p-6">
             <form onSubmit={handleSubmit} className="space-y-5">
 
@@ -369,7 +265,7 @@ export default function NewApplication({ agent }) {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                     </svg>
                   )}
-                  Submit for Approval
+                  {submitting ? "Sending…" : "Send Application"}
                 </button>
                 {submitMsg && (
                   <p className={`text-sm ${submitMsg.ok ? "text-emerald-400" : "text-red-400"}`}>
@@ -383,9 +279,9 @@ export default function NewApplication({ agent }) {
 
         {/* ── History table ─────────────────────────────────────────────── */}
         <section>
-          <SectionTitle>{isAdmin ? "All Requests" : "My Requests"}</SectionTitle>
+          <SectionTitle>{isAdmin ? "All Sent Applications" : "My Sent Applications"}</SectionTitle>
           {myRequests.length === 0 ? (
-            <EmptyCard>No requests submitted yet.</EmptyCard>
+            <EmptyCard>No applications sent yet.</EmptyCard>
           ) : (
             <div className="bg-[#0d1017] border border-[#1e2130] rounded-xl overflow-hidden">
               <table className="w-full text-sm">
@@ -397,8 +293,7 @@ export default function NewApplication({ agent }) {
                     <Th>EIN</Th>
                     <Th>Client Email</Th>
                     <Th>Status</Th>
-                    <Th>Submitted</Th>
-                    <Th>Reviewed</Th>
+                    <Th>Sent</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -409,16 +304,8 @@ export default function NewApplication({ agent }) {
                       <Td>{r.business_name || "—"}</Td>
                       <Td><span className="text-[#8892a4]">{r.ein || "—"}</span></Td>
                       <Td><span className="text-[#8892a4]">{r.client_email}</span></Td>
-                      <Td>
-                        <div className="flex flex-col gap-0.5">
-                          <StatusBadge status={r.status} />
-                          {r.rejection_note && (
-                            <span className="text-[10px] text-[#4a5568] max-w-[160px] truncate">{r.rejection_note}</span>
-                          )}
-                        </div>
-                      </Td>
+                      <Td><StatusBadge status={r.status} /></Td>
                       <Td><span className="text-[#4a5568]">{fmt(r.created_at)}</span></Td>
-                      <Td><span className="text-[#4a5568]">{fmt(r.reviewed_at)}</span></Td>
                     </tr>
                   ))}
                 </tbody>
@@ -452,16 +339,6 @@ function Field({ label, children, required }) {
         {label}{required && <span className="text-[#c9a84c] ml-0.5">*</span>}
       </label>
       {children}
-    </div>
-  );
-}
-
-function DetailRow({ label, value, span }) {
-  if (!value) return null;
-  return (
-    <div className={span ? "col-span-2" : ""}>
-      <span className="text-[#4a5568] text-[10px] uppercase tracking-wider">{label}: </span>
-      <span className="text-[#8892a4] text-xs">{value}</span>
     </div>
   );
 }
