@@ -164,10 +164,12 @@ export default function DealPipeline({ agent }) {
 
       let savedDeal;
       if (selected) {
-        const { data } = await supabase.from("deals").update(payload).eq("id", selected.id).select().single();
+        const { data, error } = await supabase.from("deals").update(payload).eq("id", selected.id).select().single();
+        if (error) throw error;
         savedDeal = data;
       } else {
-        const { data } = await supabase.from("deals").insert({ ...payload, created_at: new Date().toISOString() }).select().single();
+        const { data, error } = await supabase.from("deals").insert({ ...payload, created_at: new Date().toISOString() }).select().single();
+        if (error) throw error;
         savedDeal = data;
       }
 
@@ -191,6 +193,7 @@ export default function DealPipeline({ agent }) {
       closeModal();
     } catch (err) {
       console.error("Error saving deal:", err);
+      alert("Error saving deal: " + (err.message || err));
     } finally {
       setSaving(false);
     }
