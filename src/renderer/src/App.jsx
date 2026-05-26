@@ -227,7 +227,7 @@ function AppShell() {
         </PageSlot>
 
         <PageSlot active={activeView === "live-transfers"} padded>
-          <LiveTransfers />
+          <LiveTransfers onNavigatePipeline={() => setActiveView("deal-pipeline")} />
         </PageSlot>
       </main>
 

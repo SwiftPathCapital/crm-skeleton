@@ -11,11 +11,11 @@ const US_STATES = [
 ];
 
 const STATUS_OPTIONS = [
-  { value: "pending",   label: "Pending",         color: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30" },
-  { value: "completed", label: "Completed",        color: "bg-blue-500/20 text-blue-400 border-blue-500/30" },
-  { value: "funded",    label: "Funded",           color: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" },
+  { value: "pending",   label: "Pending",           color: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30" },
+  { value: "completed", label: "Completed",          color: "bg-blue-500/20 text-blue-400 border-blue-500/30" },
+  { value: "funded",    label: "Funded",             color: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" },
   { value: "failed",    label: "Failed / No Answer", color: "bg-red-500/20 text-red-400 border-red-500/30" },
-  { value: "credit",    label: "Credit",           color: "bg-purple-500/20 text-purple-400 border-purple-500/30" },
+  { value: "credit",    label: "Credit",             color: "bg-purple-500/20 text-purple-400 border-purple-500/30" },
 ];
 
 function statusStyle(val) {
@@ -26,20 +26,24 @@ function statusLabel(val) {
 }
 
 const EMPTY_FORM = {
-  customer_name: "",
-  phone:         "",
-  email:         "",
-  state:         "",
-  vendor_id:     "",
-  status:        "pending",
-  notes:         "",
+  customer_name:    "",
+  company_name:     "",
+  phone:            "",
+  email:            "",
+  state:            "",
+  vendor_id:        "",
+  status:           "pending",
+  requested_amount: "",
+  monthly_revenue:  "",
+  time_in_business: "",
+  notes:            "",
 };
 
 // ── Add Vendor Modal ──────────────────────────────────────────────────────────
 
 function AddVendorModal({ onClose, onAdded }) {
   const [name,   setName]   = useState("");
-  const [saving, setSaving] = useState("");
+  const [saving, setSaving] = useState(false);
 
   async function handleSave() {
     const trimmed = name.trim();
@@ -87,17 +91,23 @@ function AddVendorModal({ onClose, onAdded }) {
 
 // ── Transfer Form Modal ───────────────────────────────────────────────────────
 
-function TransferModal({ transfer, vendors, onClose, onSaved, isAdmin }) {
-  const { userId } = useApp();
-  const [form,   setForm]   = useState(transfer ? {
-    customer_name: transfer.customer_name,
-    phone:         transfer.phone,
-    email:         transfer.email,
-    state:         transfer.state,
-    vendor_id:     transfer.vendor_id ?? "",
-    status:        transfer.status,
-    notes:         transfer.notes,
+function TransferModal({ transfer, vendors, onClose, onSaved, isAdmin, onNavigatePipeline }) {
+  const { userId, agent } = useApp();
+
+  const [form, setForm] = useState(transfer ? {
+    customer_name:    transfer.customer_name,
+    company_name:     transfer.company_name,
+    phone:            transfer.phone,
+    email:            transfer.email,
+    state:            transfer.state,
+    vendor_id:        transfer.vendor_id ?? "",
+    status:           transfer.status,
+    requested_amount: transfer.requested_amount,
+    monthly_revenue:  transfer.monthly_revenue,
+    time_in_business: transfer.time_in_business,
+    notes:            transfer.notes,
   } : { ...EMPTY_FORM });
+
   const [saving,      setSaving]      = useState(false);
   const [showAddVend, setShowAddVend] = useState(false);
   const [vendorList,  setVendorList]  = useState(vendors);
@@ -111,34 +121,111 @@ function TransferModal({ transfer, vendors, onClose, onSaved, isAdmin }) {
       vendor_id: form.vendor_id || null,
       agent_id:  transfer ? transfer.agent_id : userId,
     };
-    let error;
+
     if (transfer) {
-      ({ error } = await supabase.from("live_transfers").update(payload).eq("id", transfer.id));
+      // Edit — just update
+      const { error } = await supabase.from("live_transfers").update(payload).eq("id", transfer.id);
+      setSaving(false);
+      if (error) { alert("Error: " + error.message); return; }
     } else {
-      ({ error } = await supabase.from("live_transfers").insert(payload));
+      // New transfer — create lead + deal first, then link them
+      const nameParts  = form.customer_name.trim().split(" ");
+      const firstName  = nameParts[0] || "";
+      const lastName   = nameParts.slice(1).join(" ") || "";
+
+      // 1. Create lead
+      const { data: newLead, error: leadErr } = await supabase
+        .from("leads")
+        .insert({
+          name:         form.customer_name.trim(),
+          first_name:   firstName,
+          last_name:    lastName,
+          company_name: form.company_name.trim(),
+          phone:        form.phone.trim(),
+          email:        form.email.trim(),
+          state:        form.state,
+          assigned_to:  userId,
+          status:       "New",
+          lead_type:    "Live Transfer",
+        })
+        .select("id")
+        .single();
+
+      if (leadErr) { setSaving(false); alert("Error creating lead: " + leadErr.message); return; }
+
+      // 2. Create deal in pipeline
+      const { data: newDeal, error: dealErr } = await supabase
+        .from("deals")
+        .insert({
+          lead_id:           newLead.id,
+          contact_name:      form.customer_name.trim(),
+          business_name:     form.company_name.trim(),
+          lead_type:         "Live Transfer",
+          assigned_agent_id: userId,
+          stage:             "new_lead",
+          notes:             [],
+          docs:              [],
+        })
+        .select("id")
+        .single();
+
+      if (dealErr) { setSaving(false); alert("Error creating deal: " + dealErr.message); return; }
+
+      // 3. Insert live transfer linked to lead + deal
+      const { error } = await supabase.from("live_transfers").insert({
+        ...payload,
+        lead_id: newLead.id,
+        deal_id: newDeal.id,
+      });
+      setSaving(false);
+      if (error) { alert("Error: " + error.message); return; }
     }
-    setSaving(false);
-    if (error) { alert("Error: " + error.message); return; }
+
     onSaved();
     onClose();
   }
 
-  const inputCls = "w-full bg-[#1e2130] border border-[#2d3748] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#c9a84c] transition-colors";
-  const labelCls = "block text-xs font-semibold text-[#4a5568] uppercase tracking-wider mb-1";
+  const inputCls  = "w-full bg-[#1e2130] border border-[#2d3748] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#c9a84c] transition-colors";
+  const labelCls  = "block text-xs font-semibold text-[#4a5568] uppercase tracking-wider mb-1";
+  const isEditing = !!transfer;
 
   return (
     <>
       <div className="fixed inset-0 z-40 flex items-center justify-center">
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
         <div className="relative bg-[#0f1117] border border-[#1e2130] rounded-2xl p-6 w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
-          <h3 className="text-white font-semibold text-lg mb-5">
-            {transfer ? "Edit Transfer" : "New Live Transfer"}
-          </h3>
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="text-white font-semibold text-lg">
+              {isEditing ? "Edit Transfer" : "New Live Transfer"}
+            </h3>
+            {isEditing && transfer.deal_id && (
+              <button
+                onClick={() => { onClose(); onNavigatePipeline(); }}
+                className="flex items-center gap-1.5 text-xs text-[#c9a84c] hover:underline"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7" />
+                </svg>
+                View in Pipeline
+              </button>
+            )}
+          </div>
+
+          {!isEditing && (
+            <div className="bg-[#c9a84c]/10 border border-[#c9a84c]/20 rounded-lg px-3 py-2 mb-4 text-xs text-[#c9a84c]">
+              A lead and pipeline deal will be created automatically when you save.
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
               <label className={labelCls}>Customer Name</label>
               <input type="text" value={form.customer_name} onChange={e => set("customer_name", e.target.value)} placeholder="Full name" className={inputCls} />
+            </div>
+
+            <div className="col-span-2">
+              <label className={labelCls}>Company Name</label>
+              <input type="text" value={form.company_name} onChange={e => set("company_name", e.target.value)} placeholder="Business name" className={inputCls} />
             </div>
 
             <div>
@@ -166,6 +253,21 @@ function TransferModal({ transfer, vendors, onClose, onSaved, isAdmin }) {
               </select>
             </div>
 
+            <div>
+              <label className={labelCls}>Requested Amount</label>
+              <input type="text" value={form.requested_amount} onChange={e => set("requested_amount", e.target.value)} placeholder="$50,000" className={inputCls} />
+            </div>
+
+            <div>
+              <label className={labelCls}>Monthly Revenue</label>
+              <input type="text" value={form.monthly_revenue} onChange={e => set("monthly_revenue", e.target.value)} placeholder="$15,000/mo" className={inputCls} />
+            </div>
+
+            <div className="col-span-2">
+              <label className={labelCls}>Time in Business</label>
+              <input type="text" value={form.time_in_business} onChange={e => set("time_in_business", e.target.value)} placeholder="e.g. 3 years, 18 months" className={inputCls} />
+            </div>
+
             <div className="col-span-2">
               <div className="flex items-center justify-between mb-1">
                 <label className={labelCls + " mb-0"}>Transfer Type / Vendor</label>
@@ -185,7 +287,7 @@ function TransferModal({ transfer, vendors, onClose, onSaved, isAdmin }) {
                 value={form.notes}
                 onChange={e => set("notes", e.target.value)}
                 rows={4}
-                placeholder="Any additional details…"
+                placeholder="Any additional details, qualifying info, objections…"
                 className={inputCls + " resize-none"}
               />
             </div>
@@ -198,7 +300,7 @@ function TransferModal({ transfer, vendors, onClose, onSaved, isAdmin }) {
               disabled={saving}
               className="px-5 py-2 rounded-lg text-sm font-semibold bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] hover:opacity-90 disabled:opacity-40"
             >
-              {saving ? "Saving…" : transfer ? "Save Changes" : "Create"}
+              {saving ? "Saving…" : isEditing ? "Save Changes" : "Create"}
             </button>
           </div>
         </div>
@@ -219,7 +321,7 @@ function TransferModal({ transfer, vendors, onClose, onSaved, isAdmin }) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-export default function LiveTransfers() {
+export default function LiveTransfers({ onNavigatePipeline }) {
   const { agent, userId } = useApp();
   const isAdmin = agent?.role === "admin";
 
@@ -261,6 +363,7 @@ export default function LiveTransfers() {
       const q = search.toLowerCase();
       if (
         !t.customer_name.toLowerCase().includes(q) &&
+        !(t.company_name || "").toLowerCase().includes(q) &&
         !t.phone.includes(q) &&
         !t.email.toLowerCase().includes(q) &&
         !t.state.toLowerCase().includes(q)
@@ -294,7 +397,7 @@ export default function LiveTransfers() {
           type="text"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="Search name, phone, email…"
+          placeholder="Search name, company, phone…"
           className="bg-[#1e2130] border border-[#2d3748] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#c9a84c] w-56"
         />
         <select
@@ -332,7 +435,7 @@ export default function LiveTransfers() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#1e2130] bg-[#0d1117]">
-                {["Customer", "Phone", "Email", "State", "Vendor", "Status", "Date", ""].map(h => (
+                {["Customer", "Company", "Phone", "State", "Asking", "Revenue/Mo", "Vendor", "Status", "Date", ""].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-[#4a5568] uppercase tracking-wider whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -346,9 +449,11 @@ export default function LiveTransfers() {
                   <td className="px-4 py-3 font-medium text-white whitespace-nowrap">
                     {t.customer_name || <span className="text-[#4a5568]">—</span>}
                   </td>
+                  <td className="px-4 py-3 text-[#8892a4] max-w-[140px] truncate">{t.company_name || "—"}</td>
                   <td className="px-4 py-3 text-[#8892a4] whitespace-nowrap">{t.phone || "—"}</td>
-                  <td className="px-4 py-3 text-[#8892a4] max-w-[160px] truncate">{t.email || "—"}</td>
                   <td className="px-4 py-3 text-[#8892a4] whitespace-nowrap">{t.state || "—"}</td>
+                  <td className="px-4 py-3 text-[#8892a4] whitespace-nowrap">{t.requested_amount || "—"}</td>
+                  <td className="px-4 py-3 text-[#8892a4] whitespace-nowrap">{t.monthly_revenue || "—"}</td>
                   <td className="px-4 py-3 text-[#8892a4] whitespace-nowrap">{t.transfer_vendors?.name || "—"}</td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusStyle(t.status)}`}>
@@ -360,6 +465,17 @@ export default function LiveTransfers() {
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <div className="flex items-center gap-2">
+                      {t.deal_id && (
+                        <button
+                          onClick={onNavigatePipeline}
+                          className="text-[#4a5568] hover:text-[#c9a84c] transition-colors"
+                          title="View in Deal Pipeline"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7" />
+                          </svg>
+                        </button>
+                      )}
                       <button
                         onClick={() => { setEditing(t); setShowModal(true); }}
                         className="text-[#4a5568] hover:text-[#c9a84c] transition-colors"
@@ -389,13 +505,6 @@ export default function LiveTransfers() {
         </div>
       )}
 
-      {/* Notes preview strip */}
-      {editing?.notes && (
-        <div className="bg-[#1e2130] border border-[#2d3748] rounded-lg px-4 py-2 text-xs text-[#8892a4]">
-          <span className="text-[#4a5568] font-semibold mr-2">Note:</span>{editing.notes}
-        </div>
-      )}
-
       {showModal && (
         <TransferModal
           transfer={editing}
@@ -403,6 +512,7 @@ export default function LiveTransfers() {
           isAdmin={isAdmin}
           onClose={() => { setShowModal(false); setEditing(null); }}
           onSaved={load}
+          onNavigatePipeline={onNavigatePipeline}
         />
       )}
     </div>
