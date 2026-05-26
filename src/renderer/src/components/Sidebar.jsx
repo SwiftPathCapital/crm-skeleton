@@ -76,6 +76,15 @@ const navItems = [
       </svg>
     ),
   },
+  {
+    id: "live-transfers",
+    label: "Live Transfers",
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+      </svg>
+    ),
+  },
 ];
 
 const adminItems = [
@@ -117,7 +126,7 @@ const adminItems = [
   },
 ];
 
-export default function Sidebar({ activeView, setActiveView, agent, badges = {} }) {
+export default function Sidebar({ activeView, setActiveView, agent, badges = {}, onStartTour }) {
   const userRole = agent?.role || "agent";
 
   async function handleLogout() {
@@ -229,6 +238,16 @@ export default function Sidebar({ activeView, setActiveView, agent, badges = {} 
       </div>
 
       <div className="px-3 py-4 border-t border-[#1e2130] space-y-3">
+        <button
+          onClick={onStartTour}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-[#8892a4] hover:bg-[#161b27] hover:text-white transition-all duration-150"
+        >
+          <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+          </svg>
+          Take a Tour
+        </button>
+
         <div className="flex items-center gap-2 px-3">
           <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           <span className="text-[#4a5568] text-xs">Connected</span>

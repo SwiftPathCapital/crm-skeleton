@@ -107,10 +107,12 @@ function ComposeModal({ onClose, onSend, initialTo = "", initialSubject = "", in
   const [bcc,       setBcc]       = useState("");
   const [showBcc,   setShowBcc]   = useState(false);
   const [subject,   setSubject]   = useState(initialSubject);
-  const [sending,   setSending]   = useState(false);
-  const [files,     setFiles]     = useState([]);
-  const fileInputRef = React.useRef();
+  const [sending,       setSending]       = useState(false);
+  const [files,         setFiles]         = useState([]);
+  const [showLinkInput, setShowLinkInput] = useState(false);
+  const [linkUrl,       setLinkUrl]       = useState("");
   const editorRef    = React.useRef();
+  const linkInputRef = React.useRef();
 
   // Seed the editor with initialBody on mount
   React.useEffect(() => {
@@ -200,11 +202,12 @@ function ComposeModal({ onClose, onSend, initialTo = "", initialSubject = "", in
           <button className={toolbarBtn} onMouseDown={e => { e.preventDefault(); execCmd("justifyCenter"); }} title="Center">≡C</button>
           <div className="w-px h-4 bg-[#1e2130] mx-1" />
           <button
-            className={toolbarBtn}
+            className={toolbarBtn + (showLinkInput ? " bg-[#1e2130] text-white" : "")}
             onMouseDown={e => {
               e.preventDefault();
-              const url = prompt("URL:");
-              if (url) execCmd("createLink", url);
+              setShowLinkInput(v => !v);
+              setLinkUrl("");
+              setTimeout(() => linkInputRef.current?.focus(), 50);
             }}
             title="Insert link"
           >
@@ -212,6 +215,44 @@ function ComposeModal({ onClose, onSend, initialTo = "", initialSubject = "", in
           </button>
           <button className={toolbarBtn} onMouseDown={e => { e.preventDefault(); execCmd("removeFormat"); }} title="Clear formatting">Tx</button>
         </div>
+
+        {/* Inline link input */}
+        {showLinkInput && (
+          <div className="flex items-center gap-2 px-4 py-2 border-b border-[#1e2130] bg-[#0d1117]">
+            <span className="text-xs text-[#4a5568] whitespace-nowrap">Link URL:</span>
+            <input
+              ref={linkInputRef}
+              type="url"
+              value={linkUrl}
+              onChange={e => setLinkUrl(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === "Enter" && linkUrl.trim()) {
+                  execCmd("createLink", linkUrl.trim());
+                  setShowLinkInput(false);
+                  setLinkUrl("");
+                } else if (e.key === "Escape") {
+                  setShowLinkInput(false);
+                  setLinkUrl("");
+                }
+              }}
+              placeholder="https://example.com"
+              className="flex-1 bg-[#1e2130] border border-[#2d3748] rounded px-2 py-1 text-xs text-white outline-none focus:border-[#c9a84c]"
+            />
+            <button
+              onMouseDown={e => {
+                e.preventDefault();
+                if (linkUrl.trim()) execCmd("createLink", linkUrl.trim());
+                setShowLinkInput(false);
+                setLinkUrl("");
+              }}
+              className="px-2 py-1 rounded text-xs bg-[#c9a84c] text-[#080b10] font-semibold hover:opacity-90"
+            >Apply</button>
+            <button
+              onMouseDown={e => { e.preventDefault(); setShowLinkInput(false); setLinkUrl(""); }}
+              className="px-2 py-1 rounded text-xs text-[#4a5568] hover:text-white"
+            >Cancel</button>
+          </div>
+        )}
 
         {/* Rich text body */}
         <div
@@ -249,17 +290,16 @@ function ComposeModal({ onClose, onSend, initialTo = "", initialSubject = "", in
             >
               Discard
             </button>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-[#8892a4] hover:text-white hover:bg-[#1e2130] transition-all"
-              title="Attach files"
+            <label
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-[#8892a4] hover:text-white hover:bg-[#1e2130] transition-all cursor-pointer"
+              title="Attach files from your computer"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
               </svg>
-              Attach
-            </button>
-            <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFiles} />
+              Attach File
+              <input type="file" multiple className="hidden" onChange={handleFiles} />
+            </label>
           </div>
           <button
             onClick={handleSend}

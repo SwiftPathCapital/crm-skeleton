@@ -13,7 +13,9 @@ import CalendarPage from "./pages/CalendarPage";
 import NewApplication from "./pages/NewApplication";
 import Settings from "./pages/Settings";
 import Messaging from "./pages/Messaging";
+import LiveTransfers from "./pages/LiveTransfers";
 import Login from "./pages/Login";
+import TourGuide from "./components/TourGuide";
 import { supabase } from "./lib/supabaseClient";
 import { AppProvider, useApp } from "./context/AppContext";
 
@@ -83,6 +85,7 @@ function AppShell() {
   const [leads,          setLeads]          = useState([]);
   const [leadsLoading,   setLeadsLoading]   = useState(false);
   const [unreadMsgCount, setUnreadMsgCount] = useState(0);
+  const [tourActive,     setTourActive]     = useState(false);
 
   useEffect(() => {
     if (agent) fetchLeads();
@@ -158,9 +161,8 @@ function AppShell() {
           setActiveView(view);
         }}
         agent={agent}
-        badges={{
-          "messaging": unreadMsgCount,
-        }}
+        badges={{ "messaging": unreadMsgCount }}
+        onStartTour={() => setTourActive(true)}
       />
 
       {/* All page views are always mounted; only the active one is visible.
@@ -223,7 +225,19 @@ function AppShell() {
         <PageSlot active={activeView === "messaging"} padded>
           <Messaging onUnreadChange={setUnreadMsgCount} />
         </PageSlot>
+
+        <PageSlot active={activeView === "live-transfers"} padded>
+          <LiveTransfers />
+        </PageSlot>
       </main>
+
+      {tourActive && (
+        <TourGuide
+          setActiveView={setActiveView}
+          isAdmin={isAdmin}
+          onExit={() => setTourActive(false)}
+        />
+      )}
     </div>
   );
 }
