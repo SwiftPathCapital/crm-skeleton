@@ -15,6 +15,7 @@ import Settings from "./pages/Settings";
 import Messaging from "./pages/Messaging";
 import LiveTransfers from "./pages/LiveTransfers";
 import CallbacksPage from "./pages/CallbacksPage";
+import SouthendPortal from "./pages/SouthendPortal";
 import CallbackReminder from "./components/CallbackReminder";
 import Login from "./pages/Login";
 import TourGuide from "./components/TourGuide";
@@ -235,6 +236,10 @@ function AppShell() {
 
         <PageSlot active={activeView === "callbacks"} padded>
           <CallbacksPage />
+        </PageSlot>
+
+        <PageSlot active={activeView === "southend-portal"}>
+          <SouthendPortal />
         </PageSlot>
       </main>
 
