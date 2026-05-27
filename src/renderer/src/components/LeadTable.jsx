@@ -4,21 +4,33 @@ import { supabase } from "../lib/supabaseClient";
 import { useApp } from "../context/AppContext";
 import LeadExpandedRow from "./LeadExpandedRow";
 
+const KNOWN_LEAD_TYPES = ["ucc", "trigger", "aged", "web", "live_transfer"];
+
 const leadTypeStyles = {
-  ucc: "bg-blue-500/20 text-blue-400 border border-blue-500/30",
-  trigger: "bg-orange-500/20 text-orange-400 border border-orange-500/30",
-  aged: "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30",
-  web: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30",
+  ucc:           "bg-blue-500/20 text-blue-400 border border-blue-500/30",
+  trigger:       "bg-orange-500/20 text-orange-400 border border-orange-500/30",
+  aged:          "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30",
+  web:           "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30",
   live_transfer: "bg-purple-500/20 text-purple-400 border border-purple-500/30",
 };
 
 const leadTypeLabels = {
-  ucc: "UCC",
-  trigger: "Trigger",
-  aged: "Aged",
-  web: "Web",
+  ucc:           "UCC",
+  trigger:       "Trigger",
+  aged:          "Aged",
+  web:           "Web",
   live_transfer: "Live Transfer",
 };
+
+function isInbound(lead) {
+  return lead.lead_type && !KNOWN_LEAD_TYPES.includes(lead.lead_type);
+}
+
+function leadTypeDisplay(lead) {
+  const label = lead.lead_type_label || lead.lead_type;
+  const style = leadTypeStyles[lead.lead_type] || "bg-teal-500/20 text-teal-400 border border-teal-500/30";
+  return { label: leadTypeLabels[lead.lead_type] || label || "—", style };
+}
 
 function ScoreBadge({ score }) {
   let color = "bg-red-500/20 text-red-400";
@@ -108,7 +120,8 @@ export default function LeadTable({ leads, onSaveLead, onOpenEmailClient, onRefr
   const searching = search.trim().length > 0;
 
   const filtered = leads.filter((l) => {
-    const matchType = filterType === "all" || l.lead_type === filterType;
+    const matchType = filterType === "all"
+      || (filterType === "inbound" ? isInbound(l) : l.lead_type === filterType);
 
     // Agents with no search: show only their own pipeline
     if (!isAdmin && !searching) {
@@ -213,16 +226,18 @@ export default function LeadTable({ leads, onSaveLead, onOpenEmailClient, onRefr
           />
         </div>
 
-        <div className="flex items-center gap-1 bg-[#0f1117] border border-[#1e2130] rounded-lg p-1">
-          {["all", "ucc", "trigger", "aged", "web", "live_transfer"].map((type) => (
+        <div className="flex items-center gap-1 bg-[#0f1117] border border-[#1e2130] rounded-lg p-1 flex-wrap">
+          {["all", "ucc", "trigger", "aged", "web", "live_transfer", "inbound"].map((type) => (
             <button
               key={type}
               onClick={() => setFilterType(type)}
               className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-150 ${
-                filterType === type ? "bg-blue-600 text-white" : "text-[#8892a4] hover:text-white"
+                filterType === type
+                  ? type === "inbound" ? "bg-teal-600 text-white" : "bg-blue-600 text-white"
+                  : "text-[#8892a4] hover:text-white"
               }`}
             >
-              {type === "all" ? "All" : leadTypeLabels[type]}
+              {type === "all" ? "All" : type === "inbound" ? "Inbound" : leadTypeLabels[type]}
             </button>
           ))}
         </div>
@@ -347,9 +362,9 @@ export default function LeadTable({ leads, onSaveLead, onOpenEmailClient, onRefr
                     </td>
                     <td className="px-4 py-3 text-[#8892a4] text-xs">{lead.lead_vendor || "—"}</td>
                     <td className="px-4 py-3">
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded-md ${leadTypeStyles[lead.lead_type] || ""}`}>
-                        {leadTypeLabels[lead.lead_type] || lead.lead_type}
-                      </span>
+                      {(() => { const { label, style } = leadTypeDisplay(lead); return (
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-md ${style}`}>{label}</span>
+                      ); })()}
                     </td>
                     <td className="px-4 py-3">
                       <ScoreBadge score={lead.lead_score} />

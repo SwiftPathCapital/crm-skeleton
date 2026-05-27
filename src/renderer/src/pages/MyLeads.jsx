@@ -18,7 +18,7 @@ const STATUSES = LEAD_STATUSES;
 const EMPTY = {
   lead_type: "ucc", first_name: "", last_name: "", company_name: "",
   phone: "", email: "", address: "", city: "", state: "", zip: "",
-  lead_vendor: "", status: "New",
+  lead_vendor: "", lead_type_label: "", status: "New",
 };
 
 const inputCls = "w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a84c]/40 transition-colors placeholder-[#4a5568]";
@@ -158,9 +158,10 @@ export default function MyLeads({ leads, onSaveLead, onRefresh, onOpenEmailClien
         city:         form.city         || null,
         state:        form.state        || null,
         zip:          form.zip          || null,
-        lead_vendor:  form.lead_vendor  || null,
-        status:       form.status,
-        assigned_to:  userId,
+        lead_vendor:      form.lead_vendor      || null,
+        lead_type_label:  form.lead_type_label  || null,
+        status:           form.status,
+        assigned_to:      userId,
         created_at:   new Date().toISOString(),
       });
       if (error) throw error;
@@ -368,6 +369,10 @@ export default function MyLeads({ leads, onSaveLead, onRefresh, onOpenEmailClien
                 <div>
                   <Label>Lead Vendor</Label>
                   <input value={form.lead_vendor} onChange={e => f("lead_vendor", e.target.value)} className={inputCls} placeholder="e.g. Data vendor name" />
+                </div>
+                <div>
+                  <Label>Lead Source</Label>
+                  <input value={form.lead_type_label} onChange={e => f("lead_type_label", e.target.value)} className={inputCls} placeholder="e.g. Google, Referral, Website" />
                 </div>
               </Section>
 

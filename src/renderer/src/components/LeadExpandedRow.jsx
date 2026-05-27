@@ -109,12 +109,12 @@ function WebFields({ data, onChange }) {
 
       <SectionHeader title="Application Info" />
       <Field label="Requested Amount" fieldKey="requested_amount" value={data.requested_amount} onChange={onChange} />
-      <Field label="Why Funds" fieldKey="why_funds" value={data.why_funds} onChange={onChange} />
+      <Field label="Notes / Why Funds" fieldKey="why_funds" value={data.why_funds} onChange={onChange} />
       <Field label="Time in Business" fieldKey="tib" value={data.tib} onChange={onChange} type="date" />
       <Field label="Monthly Deposit" fieldKey="monthly_deposit" value={data.monthly_deposit} onChange={onChange} />
       <Field label="Best Time to Call" fieldKey="best_time" value={data.best_time} onChange={onChange} />
       <Field label="FICO Score" fieldKey="fico" value={data.fico} onChange={onChange} type="number" />
-      <Field label="Lead Type" fieldKey="lead_type_label" value={data.lead_type_label} onChange={onChange} />
+      <Field label="Lead Source" fieldKey="lead_type_label" value={data.lead_type_label} onChange={onChange} />
       <Field label="Date Sold" fieldKey="date_sold" value={data.date_sold} onChange={onChange} />
     </>
   );
