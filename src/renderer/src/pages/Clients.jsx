@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
+import { dispositionStyle, dispositionLabel } from "../lib/dispositions";
 
 const EMPTY_CLIENT = {
   contact_name: "", business_name: "", phone: "",
@@ -426,7 +427,11 @@ function ClientDrawer({ form, setForm, isNew, agents, newNote, setNewNote, onAdd
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-[#8892a4] text-xs">{new Date(rec.created_at).toLocaleString()}</span>
                       <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-emerald-400 font-medium capitalize">{rec.disposition}</span>
+                        {rec.disposition && (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium border ${dispositionStyle(rec.disposition)}`}>
+                            {dispositionLabel(rec.disposition)}
+                          </span>
+                        )}
                         <span className="text-[10px] text-[#4a5568]">{rec.duration}s</span>
                       </div>
                     </div>

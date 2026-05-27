@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabaseClient";
 import { useApp } from "../context/AppContext";
 import LeadTable from "../components/LeadTable";
 import AnnouncementsBanner from "../components/AnnouncementsBanner";
+import { LEAD_STATUSES } from "../lib/dispositions";
 
 const LEAD_TYPES = [
   { value: "ucc",           label: "UCC" },
@@ -12,7 +13,7 @@ const LEAD_TYPES = [
   { value: "live_transfer", label: "Live Transfer" },
 ];
 
-const STATUSES = ["New","Contacted","Callback","App Sent","App Signed","Not Interested","Funded","DNC"];
+const STATUSES = LEAD_STATUSES;
 
 const EMPTY = {
   lead_type: "ucc", first_name: "", last_name: "", company_name: "",

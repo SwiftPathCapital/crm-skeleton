@@ -10,6 +10,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useApp } from "../context/AppContext";
+import { CALL_DISPOSITIONS } from "../lib/dispositions";
 
 const API_BASE =
   typeof window !== "undefined" && window.location?.protocol === "file:"
@@ -138,7 +139,7 @@ function useSaveState() {
 function CallSection({ raw, upsert }) {
   const [recording,    setRecording]    = useState(raw.call_recording === "true");
   const [ringTimeout,  setRingTimeout]  = useState(raw.ring_timeout   || "30");
-  const [dispositions, setDispositions] = useState(parseJson(raw.disposition_options, ["Interested", "Callback", "Not Interested", "No Answer", "Wrong Number", "DNC"]));
+  const [dispositions, setDispositions] = useState(parseJson(raw.disposition_options, CALL_DISPOSITIONS.map(d => d.value)));
   const [newDisp,      setNewDisp]      = useState("");
   const [editIdx,      setEditIdx]      = useState(null);
   const [editVal,      setEditVal]      = useState("");

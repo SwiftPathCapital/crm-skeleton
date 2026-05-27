@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useApp } from "../context/AppContext";
+import { LEAD_STATUSES } from "../lib/dispositions";
 
 function Field({ label, fieldKey, value, onChange, type = "text", fullWidth = false }) {
   return (
@@ -637,7 +638,7 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
               className="bg-[#0f1117] border border-[#1e2130] rounded-lg px-3 py-2 text-sm text-white
                 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
             >
-              {["New","Contacted","Callback","App Sent","App Signed","Not Interested","Funded","DNC"].map(s => (
+              {LEAD_STATUSES.map(s => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>

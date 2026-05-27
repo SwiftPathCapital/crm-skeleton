@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "../lib/supabaseClient";
+import { dispositionStyle, dispositionLabel } from "../lib/dispositions";
 
 const SIP_AGENT_MAP = {
   Glenn2800: "Glenn",
@@ -359,12 +360,8 @@ export default function AdminDashboard() {
                   </td>
                   <td className="px-4 py-3">
                     {log.disposition ? (
-                      <span className={`text-xs px-2 py-0.5 rounded-md font-medium ${
-                        log.disposition === "completed"
-                          ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                          : "bg-[#1e2130] text-[#8892a4]"
-                      }`}>
-                        {log.disposition}
+                      <span className={`text-xs px-2 py-0.5 rounded-md font-medium border ${dispositionStyle(log.disposition)}`}>
+                        {dispositionLabel(log.disposition)}
                       </span>
                     ) : "—"}
                   </td>
