@@ -67,7 +67,10 @@
       "WebFetch(domain:crm-skeleton-production.up.railway.app)",
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\({k: d.get\\(k\\) for k in ['scripts','engines','main']}, indent=2\\)\\)\")",
       "Bash(xargs -I{} sh -c 'echo \"=== {} ===\"; cat {}')",
-      "Bash(dir \"C:\\\\Users\\\\free2\\\\OneDrive\\\\Desktop\\\\dialer-app\\\\app\")"
+      "Bash(dir \"C:\\\\Users\\\\free2\\\\OneDrive\\\\Desktop\\\\dialer-app\\\\app\")",
+      "Skill(db-migrate)",
+      "Bash(Read \"C:\\\\Users\\\\free2\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-free2-OneDrive-Desktop-crm-skeleton\\\\5c464efd-3e1b-4b2b-b442-05cc3c1e542b\\\\tasks\\\\b102n3vmf.output\")",
+      "Bash(Get-Date *)"
     ]
   }
 }

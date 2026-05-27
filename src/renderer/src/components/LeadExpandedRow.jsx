@@ -573,12 +573,37 @@ function EmailsTab({ lead, onOpenEmailClient }) {
 
 // ── MAIN EXPORT ──────────────────────────────────────────────────────────────
 export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
-  const { agent } = useApp();
+  const { agent, userId } = useApp();
   const isAdmin = agent?.role === "admin";
   const [formData, setFormData] = useState({ ...lead });
   const [saved, setSaved] = useState(false);
   const [activeTab, setActiveTab] = useState("details");
   const [agentsList, setAgentsList] = useState([]);
+
+  // Callback scheduling modal
+  const [cbModal, setCbModal]   = useState(false);
+  const [cbForm,  setCbForm]    = useState({ scheduled_at: "", notes: "" });
+  const [cbSaving, setCbSaving] = useState(false);
+  const [cbSaved,  setCbSaved]  = useState(false);
+
+  async function saveCallback() {
+    if (!cbForm.scheduled_at) return;
+    setCbSaving(true);
+    await supabase.from("callbacks").insert({
+      agent_id:     userId,
+      lead_id:      lead.id,
+      lead_phone:   lead.phone || null,
+      lead_name:    lead.company_name || [lead.first_name, lead.last_name].filter(Boolean).join(" ") || null,
+      scheduled_at: new Date(cbForm.scheduled_at).toISOString(),
+      notes:        cbForm.notes || null,
+      completed:    false,
+    });
+    setCbSaving(false);
+    setCbSaved(true);
+    setCbModal(false);
+    setCbForm({ scheduled_at: "", notes: "" });
+    setTimeout(() => setCbSaved(false), 3000);
+  }
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -621,6 +646,20 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
           <span className="text-[#4a5568] text-xs">ID #{lead.id}</span>
         </div>
         <div className="flex items-center gap-2">
+          {/* Schedule Callback button */}
+          <button
+            onClick={() => setCbModal(true)}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
+              cbSaved
+                ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                : "bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 border border-blue-500/30"
+            }`}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            {cbSaved ? "Scheduled!" : "Schedule Callback"}
+          </button>
           <a
             href="https://www.swiftpathcapital.net/agent-tools"
             target="_blank"
@@ -763,5 +802,48 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
       )}
 
     </div>
+
+    {/* Callback scheduling modal */}
+    {cbModal && (
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="bg-[#0f1117] border border-[#1e2130] rounded-2xl p-6 w-full max-w-sm space-y-4">
+          <div>
+            <h2 className="text-white font-bold text-lg">Schedule Callback</h2>
+            <p className="text-[#4a5568] text-xs mt-0.5">
+              {lead.company_name || [lead.first_name, lead.last_name].filter(Boolean).join(" ") || lead.phone}
+            </p>
+          </div>
+          <div>
+            <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider block mb-1">Date & Time</label>
+            <input
+              type="datetime-local"
+              value={cbForm.scheduled_at}
+              onChange={e => setCbForm(f => ({ ...f, scheduled_at: e.target.value }))}
+              className="w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a84c]/40 transition-colors"
+            />
+          </div>
+          <div>
+            <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider block mb-1">Notes</label>
+            <textarea
+              value={cbForm.notes}
+              onChange={e => setCbForm(f => ({ ...f, notes: e.target.value }))}
+              rows={3}
+              placeholder="What to follow up on…"
+              className="w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a84c]/40 transition-colors resize-none placeholder-[#4a5568]"
+            />
+          </div>
+          <div className="flex gap-3 pt-1">
+            <button onClick={() => setCbModal(false)} className="flex-1 py-2 rounded-lg border border-[#1e2130] text-[#8892a4] hover:border-[#2d3748] text-sm transition-colors">Cancel</button>
+            <button
+              onClick={saveCallback}
+              disabled={!cbForm.scheduled_at || cbSaving}
+              className="flex-1 py-2 rounded-lg bg-[#c9a84c] hover:bg-[#b8963e] text-black font-semibold text-sm transition-colors disabled:opacity-50"
+            >
+              {cbSaving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
   );
 }

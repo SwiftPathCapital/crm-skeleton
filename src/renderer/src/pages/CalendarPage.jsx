@@ -67,6 +67,7 @@ export default function CalendarPage({ agent }) {
   const [month, setMonth]           = useState(now.getMonth());
   const [weekStart, setWeekStart]   = useState(getWeekStart(now));
   const [events, setEvents]         = useState([]);
+  const [callbacks, setCallbacks]   = useState([]); // scheduled callbacks shown as calendar events
   const [agentEvts, setAgentEvts]   = useState([]); // all-agents events (admin)
   const [selectedDay, setSelectedDay]     = useState(null);
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -84,9 +85,33 @@ export default function CalendarPage({ agent }) {
   useEffect(() => { loadEvents(); }, []);
 
   async function loadEvents() {
-    const { data } = await supabase
-      .from("calendar_events").select("*").order("start_time", { ascending:true });
-    setEvents(data || []);
+    const [evRes, cbRes] = await Promise.all([
+      supabase.from("calendar_events").select("*").order("start_time", { ascending: true }),
+      supabase.from("callbacks")
+        .select("id, scheduled_at, notes, agent_id, leads(first_name, last_name, company_name), lead_name")
+        .eq("completed", false)
+        .not("scheduled_at", "is", null),
+    ]);
+    setEvents(evRes.data || []);
+    // Normalize callbacks to look like calendar events for display
+    setCallbacks(
+      (cbRes.data || []).map(cb => {
+        const l = cb.leads;
+        const title = "Callback: " + (l
+          ? (l.company_name || [l.first_name, l.last_name].filter(Boolean).join(" ") || "Lead")
+          : (cb.lead_name || "Lead"));
+        return {
+          id: "cb_" + cb.id,
+          _isCallback: true,
+          agent_id: cb.agent_id,
+          title,
+          description: cb.notes || "",
+          start_time: cb.scheduled_at,
+          end_time: cb.scheduled_at,
+          color: "#3b82f6",
+        };
+      })
+    );
     if (isAdmin) loadAgentEvents();
   }
 
@@ -97,8 +122,9 @@ export default function CalendarPage({ agent }) {
   }
 
   // ── Derived maps ────────────────────────────────────────────────────────────
+  const allEvents = [...events, ...callbacks];
   const eventsByDay = {};
-  events.forEach(ev => {
+  allEvents.forEach(ev => {
     const k = dateKey(new Date(ev.start_time));
     (eventsByDay[k] = eventsByDay[k] || []).push(ev);
   });
@@ -109,7 +135,7 @@ export default function CalendarPage({ agent }) {
     (agentEvtsByDay[k] = agentEvtsByDay[k] || []).push(ev);
   });
 
-  const upcoming = events.filter(ev => new Date(ev.start_time) >= new Date(today)).slice(0,8);
+  const upcoming = allEvents.filter(ev => new Date(ev.start_time) >= new Date(today)).sort((a,b) => new Date(a.start_time)-new Date(b.start_time)).slice(0,8);
   const selectedDayEvents = selectedDay ? (eventsByDay[selectedDay] || []) : [];
 
   // ── Navigation ──────────────────────────────────────────────────────────────

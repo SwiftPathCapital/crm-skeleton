@@ -14,6 +14,8 @@ import NewApplication from "./pages/NewApplication";
 import Settings from "./pages/Settings";
 import Messaging from "./pages/Messaging";
 import LiveTransfers from "./pages/LiveTransfers";
+import CallbacksPage from "./pages/CallbacksPage";
+import CallbackReminder from "./components/CallbackReminder";
 import Login from "./pages/Login";
 import TourGuide from "./components/TourGuide";
 import { supabase } from "./lib/supabaseClient";
@@ -84,8 +86,9 @@ function AppShell() {
   const [emailClientProps, setEmailClientProps] = useState({});
   const [leads,          setLeads]          = useState([]);
   const [leadsLoading,   setLeadsLoading]   = useState(false);
-  const [unreadMsgCount, setUnreadMsgCount] = useState(0);
-  const [tourActive,     setTourActive]     = useState(false);
+  const [unreadMsgCount,    setUnreadMsgCount]    = useState(0);
+  const [tourActive,        setTourActive]        = useState(false);
+  const [callbackBadge,     setCallbackBadge]     = useState(0);
 
   useEffect(() => {
     if (agent) fetchLeads();
@@ -161,7 +164,7 @@ function AppShell() {
           setActiveView(view);
         }}
         agent={agent}
-        badges={{ "messaging": unreadMsgCount }}
+        badges={{ "messaging": unreadMsgCount, "callbacks": callbackBadge }}
         onStartTour={() => setTourActive(true)}
       />
 
@@ -229,6 +232,10 @@ function AppShell() {
         <PageSlot active={activeView === "live-transfers"} padded>
           <LiveTransfers onNavigatePipeline={() => setActiveView("deal-pipeline")} />
         </PageSlot>
+
+        <PageSlot active={activeView === "callbacks"} padded>
+          <CallbacksPage />
+        </PageSlot>
       </main>
 
       {tourActive && (
@@ -238,6 +245,12 @@ function AppShell() {
           onExit={() => setTourActive(false)}
         />
       )}
+
+      <CallbackReminder
+        userId={userId}
+        onNavigateCallbacks={() => setActiveView("callbacks")}
+        onBadgeChange={setCallbackBadge}
+      />
     </div>
   );
 }
