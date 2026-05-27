@@ -32,15 +32,17 @@ function dollar(n) {
 
 export default function DealPipeline({ agent }) {
   const { getAuthToken, userId } = useApp();
-  const [deals, setDeals]           = useState([]);
-  const [agents, setAgents]         = useState([]);
-  const [loading, setLoading]       = useState(true);
-  const [selected, setSelected]     = useState(null);
-  const [isNew, setIsNew]           = useState(false);
-  const [form, setForm]             = useState(EMPTY_DEAL);
-  const [newNote, setNewNote]       = useState("");
-  const [saving, setSaving]         = useState(false);
-  const [dragOverStage, setDragOverStage] = useState(null);
+  const [deals, setDeals]                   = useState([]);
+  const [removedDeals, setRemovedDeals]     = useState([]);
+  const [agents, setAgents]                 = useState([]);
+  const [loading, setLoading]               = useState(true);
+  const [selected, setSelected]             = useState(null);
+  const [isNew, setIsNew]                   = useState(false);
+  const [form, setForm]                     = useState(EMPTY_DEAL);
+  const [newNote, setNewNote]               = useState("");
+  const [saving, setSaving]                 = useState(false);
+  const [dragOverStage, setDragOverStage]   = useState(null);
+  const [showRemoved, setShowRemoved]       = useState(false);
   const draggingId = useRef(null);
   const fileRef = useRef();
 
@@ -49,10 +51,21 @@ export default function DealPipeline({ agent }) {
   }, []);
 
   async function fetchDeals() {
-    let query = supabase.from("deals").select("*").order("created_at", { ascending: false });
+    let query = supabase.from("deals").select("*")
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false });
     if (agent?.role === "agent") query = query.eq("assigned_agent_id", agent.id);
     const { data } = await query;
     setDeals(data || []);
+
+    if (agent?.role === "admin") {
+      const { data: removed } = await supabase
+        .from("deals")
+        .select("*, agents!deals_deleted_by_fkey(name, email)")
+        .not("deleted_at", "is", null)
+        .order("deleted_at", { ascending: false });
+      setRemovedDeals(removed || []);
+    }
   }
 
   async function fetchAgents() {
@@ -137,6 +150,28 @@ export default function DealPipeline({ agent }) {
         });
       }
     }
+  }
+
+  async function handleRemoveDeal(dealId) {
+    if (!confirm("Remove this deal? Admins will be notified and can restore it.")) return;
+    await supabase.from("deals").update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: userId,
+    }).eq("id", dealId);
+    setDeals(prev => prev.filter(d => d.id !== dealId));
+    closeModal();
+  }
+
+  async function handleRestoreDeal(dealId) {
+    await supabase.from("deals").update({ deleted_at: null, deleted_by: null }).eq("id", dealId);
+    setRemovedDeals(prev => prev.filter(d => d.id !== dealId));
+    await fetchDeals();
+  }
+
+  async function handlePermanentDelete(dealId) {
+    if (!confirm("Permanently delete this deal? This cannot be undone.")) return;
+    await supabase.from("deals").delete().eq("id", dealId);
+    setRemovedDeals(prev => prev.filter(d => d.id !== dealId));
   }
 
   async function handleSave() {
@@ -265,6 +300,79 @@ export default function DealPipeline({ agent }) {
         })}
       </div>
 
+      {/* Removed Deals — admin only */}
+      {agent?.role === "admin" && (
+        <div className="flex-shrink-0 mt-3 border-t border-[#1e2130] pt-3">
+          <button
+            onClick={() => setShowRemoved(v => !v)}
+            className="flex items-center gap-2 text-sm font-medium text-[#4a5568] hover:text-white transition-colors"
+          >
+            <svg className={`w-4 h-4 transition-transform ${showRemoved ? "rotate-90" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+            Removed by Agents
+            {removedDeals.length > 0 && (
+              <span className="ml-1 px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/30 text-xs font-semibold">
+                {removedDeals.length}
+              </span>
+            )}
+          </button>
+
+          {showRemoved && (
+            <div className="mt-3 overflow-auto rounded-xl border border-[#1e2130]">
+              {removedDeals.length === 0 ? (
+                <p className="text-center text-[#4a5568] text-xs py-6">No removed deals</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-[#1e2130] bg-[#0d1117]">
+                      {["Contact", "Business", "Stage", "Removed By", "Removed At", ""].map(h => (
+                        <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-[#4a5568] uppercase tracking-wider whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {removedDeals.map((d, i) => {
+                      const stage = STAGES.find(s => s.id === d.stage);
+                      const agentWho = d.agents?.name || d.agents?.email || "Unknown";
+                      return (
+                        <tr key={d.id} className={`border-b border-[#1e2130] ${i % 2 === 0 ? "bg-[#080b10]" : "bg-[#0a0d14]"}`}>
+                          <td className="px-4 py-3 text-white font-medium whitespace-nowrap">{d.contact_name || "—"}</td>
+                          <td className="px-4 py-3 text-[#8892a4] max-w-[160px] truncate">{d.business_name || "—"}</td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <span className={`text-xs font-semibold ${stage?.text || "text-[#4a5568]"}`}>{stage?.label || d.stage}</span>
+                          </td>
+                          <td className="px-4 py-3 text-[#8892a4] whitespace-nowrap">{agentWho}</td>
+                          <td className="px-4 py-3 text-[#4a5568] whitespace-nowrap text-xs">
+                            {new Date(d.deleted_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleRestoreDeal(d.id)}
+                                className="px-2.5 py-1 rounded text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors"
+                              >
+                                Restore
+                              </button>
+                              <button
+                                onClick={() => handlePermanentDelete(d.id)}
+                                className="px-2.5 py-1 rounded text-xs bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {modalOpen && (
         <DealDrawer
           form={form}
@@ -285,6 +393,8 @@ export default function DealPipeline({ agent }) {
           dealId={selected?.id || null}
           currentUserId={userId}
           getAuthToken={getAuthToken}
+          onRemoveDeal={handleRemoveDeal}
+          selectedDealId={selected?.id || null}
         />
       )}
     </div>
@@ -338,7 +448,7 @@ function DealCard({ deal, agentName, onClick, onDragStart }) {
 
 const OFFER_EMPTY = { amount: "", factor_rate: "", term: "", position: "1st", notes: "" };
 
-function DealDrawer({ form, setForm, isNew, agents, stages, newNote, setNewNote, onAddNote, onFileUpload, fileRef, onSave, onClose, saving, hasExistingId, isAdmin, dealId, currentUserId, getAuthToken }) {
+function DealDrawer({ form, setForm, isNew, agents, stages, newNote, setNewNote, onAddNote, onFileUpload, fileRef, onSave, onClose, saving, hasExistingId, isAdmin, dealId, currentUserId, getAuthToken, onRemoveDeal, selectedDealId }) {
   const f = (key, val) => setForm(p => ({ ...p, [key]: val }));
 
   const [sigEmail,   setSigEmail]   = useState("");
@@ -692,6 +802,17 @@ function DealDrawer({ form, setForm, isNew, agents, stages, newNote, setNewNote,
           >
             Cancel
           </button>
+          {!isNew && !isAdmin && selectedDealId && (
+            <button
+              onClick={() => onRemoveDeal(selectedDealId)}
+              className="px-3 py-2.5 bg-red-500/10 text-red-400 border border-red-500/20 text-sm rounded-lg hover:bg-red-500/20 transition-colors"
+              title="Remove deal (admin will be notified)"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
     </div>
