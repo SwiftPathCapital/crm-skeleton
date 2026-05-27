@@ -325,7 +325,8 @@ app.post('/webhook/telnyx', verifyTelnyxSignature, async (req, res) => {
 
   if (eventType === 'call.hangup') {
     if (payload.direction === 'inbound') {
-      await supabase.from('calls').upsert({
+      // Webhook has no user session — use service-role client to bypass RLS
+      await supabaseAdmin.from('calls').upsert({
         call_session_id: sessionId,
         lead_phone: payload.from || null,
         disposition: 'completed',
@@ -342,18 +343,19 @@ app.post('/webhook/telnyx', verifyTelnyxSignature, async (req, res) => {
       ? Math.round(payload.duration_millis / 1000)
       : null;
 
-    const { data: existing } = await supabase
+    // Webhook has no user session — use service-role client to bypass RLS
+    const { data: existing } = await supabaseAdmin
       .from('calls')
       .select('id')
       .eq('call_session_id', sessionId)
       .maybeSingle();
 
     if (existing) {
-      await supabase.from('calls')
+      await supabaseAdmin.from('calls')
         .update({ recording_url: recordingUrl, duration })
         .eq('call_session_id', sessionId);
     } else {
-      await supabase.from('calls').upsert({
+      await supabaseAdmin.from('calls').upsert({
         call_session_id: sessionId,
         recording_url: recordingUrl,
         duration,
@@ -390,7 +392,8 @@ async function getZohoFolderIds(agentId, accessToken, accountId, apiDomain) {
 async function getZohoToken(agentId) {
   console.log('[getZohoToken] looking up agentId:', agentId, '(type:', typeof agentId, ')');
 
-  const { data: row, error } = await supabase
+  // Use service-role client — zoho_tokens RLS restricts anon key reads
+  const { data: row, error } = await supabaseAdmin
     .from('zoho_tokens')
     .select('access_token, refresh_token, expires_at, account_id, calendar_uid, api_domain, from_email')
     .eq('id', agentId)
@@ -419,7 +422,7 @@ async function getZohoToken(agentId) {
     });
     const { access_token, expires_in } = refreshRes.data;
     const expires_at = new Date(Date.now() + (expires_in || 3600) * 1000).toISOString();
-    await supabase.from('zoho_tokens').update({ access_token, expires_at }).eq('id', agentId);
+    await supabaseAdmin.from('zoho_tokens').update({ access_token, expires_at }).eq('id', agentId);
     row.access_token = access_token;
     row.expires_at   = expires_at;
   }
@@ -656,7 +659,8 @@ app.post('/api/emails/send', requireAuth, upload.array('attachments', 10), async
       { headers: { Authorization: `Zoho-oauthtoken ${accessToken}` } }
     );
     const zohoMessageId = sendRes.data?.data?.messageId;
-    await supabase.from('emails').insert({
+    // Use service-role client — emails RLS restricts anon key inserts
+    await supabaseAdmin.from('emails').insert({
       lead_id:         leadId || null,
       from_email:      agentRow?.email || '',
       to_email:        to,
