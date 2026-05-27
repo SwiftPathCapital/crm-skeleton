@@ -246,6 +246,34 @@ app.get('/api/recordings', async (req, res) => {
   }
 });
 
+// ── Lead call recordings from dialer ─────────────────────────────────────────
+// Returns dialer_calls rows with a recording_url that match the given phone number.
+// Only returns calls that ended at least 20 minutes ago so inbound leads have
+// time to be manually created before the recording tries to match.
+app.get('/api/lead-recordings', async (req, res) => {
+  try {
+    const phone = (req.query.phone || '').replace(/\D/g, '').slice(-10);
+    if (phone.length < 7) return res.json([]);
+
+    const cutoff = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+
+    const { data, error } = await supabaseAdmin
+      .from('dialer_calls')
+      .select('id, direction, from_number, to_number, recording_url, disposition, notes, started_at, ended_at, duration_seconds')
+      .not('recording_url', 'is', null)
+      .lt('started_at', cutoff)
+      .or(`from_number.ilike.%${phone},to_number.ilike.%${phone}`)
+      .order('started_at', { ascending: false })
+      .limit(50);
+
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) {
+    console.error('[lead-recordings]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/webhook/telnyx', verifyTelnyxSignature, async (req, res) => {
   // Acknowledge immediately — Telnyx retries if it doesn't get a 200 fast
   res.sendStatus(200);

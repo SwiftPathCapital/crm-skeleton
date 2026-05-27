@@ -280,6 +280,74 @@ function NotesTab({ lead }) {
   );
 }
 
+// ── RECORDINGS TAB ───────────────────────────────────────────────────────────
+const API_BASE = window.location?.protocol === "file:" ? "http://localhost:3001" : "";
+
+function fmt(secs) {
+  if (!secs) return null;
+  return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+}
+
+function RecordingsTab({ lead }) {
+  const [recordings, setRecordings] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!lead.phone) { setLoading(false); return; }
+    const digits = lead.phone.replace(/\D/g, "").slice(-10);
+    fetch(`${API_BASE}/api/lead-recordings?phone=${digits}`)
+      .then(r => r.json())
+      .then(d => setRecordings(Array.isArray(d) ? d : []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [lead.id, lead.phone]);
+
+  if (loading) return <p className="text-[#4a5568] text-sm py-4">Loading recordings…</p>;
+
+  if (!recordings.length) {
+    return (
+      <div className="py-8 text-center">
+        <p className="text-[#4a5568] text-sm">No recordings found for this number.</p>
+        <p className="text-[#2d3748] text-xs mt-1">Recordings appear 20 min after a call ends.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 col-span-2">
+      {recordings.map(rec => (
+        <div key={rec.id} className="bg-[#0f1117] border border-[#1e2130] rounded-xl p-4 space-y-2">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${rec.direction === "inbound" ? "bg-green-500/15 text-green-400" : "bg-blue-500/15 text-blue-400"}`}>
+                {rec.direction === "inbound" ? "Inbound" : "Outbound"}
+              </span>
+              {rec.disposition && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-[#1e2130] text-[#8892a4]">{rec.disposition}</span>
+              )}
+              {fmt(rec.duration_seconds) && (
+                <span className="text-xs text-[#4a5568]">{fmt(rec.duration_seconds)}</span>
+              )}
+            </div>
+            <span className="text-xs text-[#4a5568]">
+              {rec.started_at ? new Date(rec.started_at).toLocaleString() : ""}
+            </span>
+          </div>
+          {rec.notes && (
+            <p className="text-xs text-[#8892a4] italic">"{rec.notes}"</p>
+          )}
+          <audio
+            controls
+            src={rec.recording_url}
+            className="w-full h-9"
+            style={{ colorScheme: "dark" }}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── EMAILS TAB ───────────────────────────────────────────────────────────────
 function EmailsTab({ lead, onOpenEmailClient }) {
   const [emails, setEmails] = useState([]);
@@ -599,6 +667,7 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
           { id: "details", label: "Details" },
           { id: "emails", label: "Emails" },
           { id: "notes", label: "Notes" },
+          { id: "recordings", label: "Recordings" },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -683,6 +752,13 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
       {activeTab === "notes" && (
         <div className="grid grid-cols-2 gap-x-6 gap-y-4 min-w-0">
           <NotesTab lead={lead} />
+        </div>
+      )}
+
+      {/* Recordings tab */}
+      {activeTab === "recordings" && (
+        <div className="grid grid-cols-2 gap-x-6 gap-y-4 min-w-0">
+          <RecordingsTab lead={lead} />
         </div>
       )}
 
