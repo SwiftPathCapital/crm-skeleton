@@ -636,6 +636,7 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
   const typeInfo = leadTypeLabels[lead.lead_type] || { label: lead.lead_type, color: "bg-gray-500/20 text-gray-400" };
 
   return (
+    <>
     <div className="bg-[#0d1017] border-t border-[#1e2130] px-6 py-5 overflow-hidden w-full">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
@@ -845,5 +846,6 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
         </div>
       </div>
     )}
+    </>
   );
 }
