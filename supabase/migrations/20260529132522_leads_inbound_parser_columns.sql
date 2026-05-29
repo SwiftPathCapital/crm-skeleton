@@ -1,0 +1,18 @@
+alter table leads
+  add column if not exists contact_name           text,
+  add column if not exists industry               text,
+  add column if not exists best_contact_time      text,
+  add column if not exists fax                    text,
+  add column if not exists is_owner               text,
+  add column if not exists years_as_owner         text,
+  add column if not exists monthly_deposits       text,
+  add column if not exists urgent                 text,
+  add column if not exists fund_purpose           text,
+  add column if not exists previous_denials       text,
+  add column if not exists processes_credit_cards text,
+  add column if not exists fico_score             text,
+  add column if not exists has_equity             text,
+  add column if not exists property_equity        text,
+  add column if not exists existing_loan_balances text,
+  add column if not exists num_existing_loans     text,
+  add column if not exists requested_amount       text;
