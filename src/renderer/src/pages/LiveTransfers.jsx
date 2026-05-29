@@ -37,6 +37,7 @@ const EMPTY_FORM = {
   monthly_revenue:  "",
   time_in_business: "",
   notes:            "",
+  received_date:    "",
 };
 
 // ── Add Vendor Modal ──────────────────────────────────────────────────────────
@@ -106,6 +107,7 @@ function TransferModal({ transfer, vendors, onClose, onSaved, isAdmin, onNavigat
     monthly_revenue:  transfer.monthly_revenue,
     time_in_business: transfer.time_in_business,
     notes:            transfer.notes,
+    received_date:    transfer.received_date ?? "",
   } : { ...EMPTY_FORM });
 
   const [saving,      setSaving]      = useState(false);
@@ -118,8 +120,9 @@ function TransferModal({ transfer, vendors, onClose, onSaved, isAdmin, onNavigat
     setSaving(true);
     const payload = {
       ...form,
-      vendor_id: form.vendor_id || null,
-      agent_id:  transfer ? transfer.agent_id : userId,
+      vendor_id:     form.vendor_id     || null,
+      received_date: form.received_date || null,
+      agent_id:      transfer ? transfer.agent_id : userId,
     };
 
     if (transfer) {
@@ -137,16 +140,17 @@ function TransferModal({ transfer, vendors, onClose, onSaved, isAdmin, onNavigat
       const { data: newLead, error: leadErr } = await supabase
         .from("leads")
         .insert({
-          name:         form.customer_name.trim(),
-          first_name:   firstName,
-          last_name:    lastName,
-          company_name: form.company_name.trim(),
-          phone:        form.phone.trim(),
-          email:        form.email.trim(),
-          state:        form.state,
-          assigned_to:  userId,
-          status:       "New",
-          lead_type:    "Live Transfer",
+          name:          form.customer_name.trim(),
+          first_name:    firstName,
+          last_name:     lastName,
+          company_name:  form.company_name.trim(),
+          phone:         form.phone.trim(),
+          email:         form.email.trim(),
+          state:         form.state,
+          assigned_to:   userId,
+          status:        "New",
+          lead_type:     "Live Transfer",
+          received_date: form.received_date || null,
         })
         .select("id")
         .single();
@@ -251,6 +255,11 @@ function TransferModal({ transfer, vendors, onClose, onSaved, isAdmin, onNavigat
               <select value={form.status} onChange={e => set("status", e.target.value)} className={inputCls + " cursor-pointer"}>
                 {STATUS_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
+            </div>
+
+            <div>
+              <label className={labelCls}>Received Date</label>
+              <input type="date" value={form.received_date} onChange={e => set("received_date", e.target.value)} className={inputCls} />
             </div>
 
             <div>

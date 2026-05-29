@@ -18,7 +18,7 @@ const STATUSES = LEAD_STATUSES;
 const EMPTY = {
   lead_type: "ucc", first_name: "", last_name: "", company_name: "",
   phone: "", email: "", address: "", city: "", state: "", zip: "",
-  lead_vendor: "", lead_type_label: "", status: "New",
+  lead_vendor: "", lead_type_label: "", status: "New", received_date: "",
 };
 
 const inputCls = "w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a84c]/40 transition-colors placeholder-[#4a5568]";
@@ -162,7 +162,8 @@ export default function MyLeads({ leads, onSaveLead, onRefresh, onOpenEmailClien
         lead_type_label:  form.lead_type_label  || null,
         status:           form.status,
         assigned_to:      userId,
-        created_at:   new Date().toISOString(),
+        created_at:       new Date().toISOString(),
+        received_date:    form.received_date || null,
       });
       if (error) throw error;
       setDrawerOpen(false);
@@ -374,6 +375,12 @@ export default function MyLeads({ leads, onSaveLead, onRefresh, onOpenEmailClien
                   <Label>Lead Source</Label>
                   <input value={form.lead_type_label} onChange={e => f("lead_type_label", e.target.value)} className={inputCls} placeholder="e.g. Google, Referral, Website" />
                 </div>
+                {form.lead_type === "live_transfer" && (
+                  <div>
+                    <Label>Received Date</Label>
+                    <input type="date" value={form.received_date} onChange={e => f("received_date", e.target.value)} className={inputCls} />
+                  </div>
+                )}
               </Section>
 
               <Section title="Contact">
