@@ -49,7 +49,7 @@ router.post('/api/docuseal/send', async (req, res) => {
         template_id: parseInt(templateId, 10),
         send_email:  true,
         submitters: [{
-          role:   '1st party',
+          role:   'First Party',
           email:  clientEmail,
           name:   contactName || clientEmail,
           ...(fields.length ? { fields } : {}),
