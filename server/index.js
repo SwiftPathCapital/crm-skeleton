@@ -149,3 +149,4 @@ app.listen(3001, () => {
   const API_KEY = process.env.TELNYX_API_KEY;
   console.log('TELNYX_API_KEY:', API_KEY ? `set (${API_KEY.slice(0, 8)}...)` : 'MISSING');
 });
+
