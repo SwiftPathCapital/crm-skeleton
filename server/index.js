@@ -1,22 +1,41 @@
 const express = require('express');
-const cors    = require('cors');
-const path    = require('path');
-const crypto  = require('crypto');
+const cors = require('cors');
+const path = require('path');
+const axios = require('axios');
+const ws = require('ws');
+const crypto = require('crypto');
+const multer = require('multer');
+const FormData = require('form-data');
+const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
-// ── Startup validation ────────────────────────────────────────────────────────
-if (!process.env.OAUTH_STATE_SECRET) {
-  throw new Error('[startup] OAUTH_STATE_SECRET env var is required. Set it in .env and in Railway before deploying.');
-}
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
-// Supabase clients — inlined to avoid module resolution issues on Railway
-const { createClient } = require('@supabase/supabase-js');
-const ws = require('ws');
+const fromNumber = process.env.TELNYX_PHONE_NUMBER;
+const API_KEY = process.env.TELNYX_API_KEY;
+
+// ── Zoho OAuth config ─────────────────────────────────────────────────────────
+const ZOHO_CLIENT_ID     = process.env.ZOHO_CLIENT_ID;
+const ZOHO_CLIENT_SECRET = process.env.ZOHO_CLIENT_SECRET;
+const ZOHO_REDIRECT_URI  = 'https://crm-skeleton-production.up.railway.app/auth/zoho/callback';
+const ZOHO_AUTH_URL      = 'https://accounts.zoho.com/oauth/v2/auth';
+const ZOHO_TOKEN_URL     = 'https://accounts.zoho.com/oauth/v2/token';
+const ZOHO_SCOPES        = [
+  'ZohoMail.messages.ALL',
+  'ZohoMail.folders.ALL',
+  'ZohoMail.accounts.READ',
+  'ZohoCalendar.event.ALL',
+  'ZohoCalendar.calendar.READ',
+].join(',');
+
+// Anon client — used only for verifying user JWTs in requireAuth
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL,
   process.env.VITE_SUPABASE_ANON_KEY,
   { realtime: { transport: ws } }
 );
+
+// Service-role client — bypasses RLS for server-side writes (webhooks, OAuth callbacks)
 const supabaseAdmin = createClient(
   process.env.VITE_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY,
@@ -25,7 +44,7 @@ const supabaseAdmin = createClient(
 
 const app = express();
 
-// ── CORS ──────────────────────────────────────────────────────────────────────
+// ── CORS: restrict to known origins ──────────────────────────────────────────
 const ALLOWED_ORIGINS = new Set([
   'https://crm-skeleton-production.up.railway.app',
   'http://localhost:5173',
@@ -34,6 +53,7 @@ const ALLOWED_ORIGINS = new Set([
 ]);
 app.use(cors({
   origin: (origin, cb) => {
+    // Allow requests with no origin (Electron file://, server-to-server)
     if (!origin || ALLOWED_ORIGINS.has(origin)) return cb(null, true);
     cb(Object.assign(new Error('CORS: origin not allowed'), { status: 403 }));
   },
@@ -62,16 +82,17 @@ async function requireAuth(req, res, next) {
   next();
 }
 
-// ── Inbound lead parser (public — registered before requireAuth) ──────────────
-// Lead vendors POST here with x-api-key; no user JWT required.
+
+// ── Inbound lead parser ───────────────────────────────────────────────────────
+// Registered before requireAuth so lead vendors can POST without a user JWT.
+// Protect with INBOUND_LEADS_API_KEY env var (x-api-key header).
 app.post('/api/leads/inbound', async (req, res) => {
   const expectedKey = process.env.INBOUND_LEADS_API_KEY;
-  if (!expectedKey) {
-    return res.status(503).json({ error: 'Inbound lead endpoint is not configured' });
-  }
-  const provided = req.headers['x-api-key'];
-  if (!provided || !crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expectedKey))) {
-    return res.status(401).json({ error: 'Unauthorized' });
+  if (expectedKey) {
+    const provided = req.headers['x-api-key'];
+    if (!provided || !crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expectedKey))) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
   }
 
   function clean(val) {
@@ -82,6 +103,7 @@ app.post('/api/leads/inbound', async (req, res) => {
 
   const b = req.body;
 
+  // Resolve assigned_to: vendor sends a name string; look up agent UUID by name.
   let assignedToId = null;
   const rawAgent = clean(b.assigned_to);
   if (rawAgent) {
@@ -136,18 +158,1212 @@ app.post('/api/leads/inbound', async (req, res) => {
   return res.status(201).json({ id: data.id });
 });
 
-// ── Apply requireAuth to all /api/* and /sms ──────────────────────────────────
+// Apply requireAuth to all /api/* routes and /sms
 app.use('/api', requireAuth);
 app.use('/sms', requireAuth);
 
-// ── Route modules ─────────────────────────────────────────────────────────────
-app.use('/', require('./route-calls'));
-app.use('/', require('./route-zoho'));
-app.use('/', require('./route-emails'));
-app.use('/', require('./route-calendar'));
-app.use('/', require('./route-agents'));
-app.use('/', require('./route-leads'));
-app.use('/', require('./route-docuseal'));
+// ── OAuth CSRF helpers ────────────────────────────────────────────────────────
+const OAUTH_STATE_SECRET = process.env.OAUTH_STATE_SECRET || (() => {
+  if (process.env.NODE_ENV !== 'development') {
+    console.warn('[oauth] OAUTH_STATE_SECRET not set — using insecure fallback');
+  }
+  return 'dev-fallback-secret-change-me';
+})();
+
+function buildOAuthState(agentId) {
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const ts = Date.now().toString();
+  const payload = `${agentId}:${nonce}:${ts}`;
+  const sig = crypto.createHmac('sha256', OAUTH_STATE_SECRET).update(payload).digest('hex');
+  return Buffer.from(`${payload}:${sig}`).toString('base64url');
+}
+
+function parseOAuthState(state) {
+  try {
+    const decoded = Buffer.from(state, 'base64url').toString();
+    const lastColon = decoded.lastIndexOf(':');
+    const payload = decoded.slice(0, lastColon);
+    const sig = decoded.slice(lastColon + 1);
+    const expected = crypto.createHmac('sha256', OAUTH_STATE_SECRET).update(payload).digest('hex');
+    if (!crypto.timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(expected, 'hex'))) return null;
+    const [agentId, , ts] = payload.split(':');
+    // Reject states older than 10 minutes
+    if (Date.now() - parseInt(ts, 10) > 600_000) return null;
+    return agentId;
+  } catch {
+    return null;
+  }
+}
+
+// ── Telnyx webhook signature verification ────────────────────────────────────
+function verifyTelnyxSignature(req, res, next) {
+  const sigHeader = req.headers['x-telnyx-signature-ed25519'];
+  const timestamp = req.headers['x-telnyx-timestamp'];
+  const publicKeyB64 = process.env.TELNYX_WEBHOOK_PUBLIC_KEY;
+
+  if (!publicKeyB64) {
+    console.warn('[webhook] TELNYX_WEBHOOK_PUBLIC_KEY not set — set this env var to enable signature verification');
+    return next();
+  }
+
+  if (!sigHeader || !timestamp) {
+    return res.status(400).json({ error: 'Missing webhook signature headers' });
+  }
+
+  const tsMs = parseInt(timestamp, 10) * 1000;
+  if (Math.abs(Date.now() - tsMs) > 300_000) {
+    return res.status(400).json({ error: 'Webhook timestamp expired' });
+  }
+
+  try {
+    const message = Buffer.from(`${timestamp}|${req.rawBody || ''}`);
+    const sig = Buffer.from(sigHeader, 'base64');
+    const pubKey = crypto.createPublicKey({
+      key: Buffer.from(publicKeyB64, 'base64'),
+      format: 'der',
+      type: 'spki',
+    });
+    if (!crypto.verify('ed25519', message, pubKey, sig)) {
+      return res.status(400).json({ error: 'Invalid webhook signature' });
+    }
+    next();
+  } catch (err) {
+    console.error('[webhook] signature error:', err.message);
+    return res.status(400).json({ error: 'Signature verification failed' });
+  }
+}
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', number: fromNumber });
+});
+
+app.post('/voice', (req, res) => {
+  res.type('text/xml');
+  res.send(
+    '<?xml version="1.0" encoding="UTF-8"?>' +
+    '<Response><Hangup/></Response>'
+  );
+});
+
+app.post('/sms', async (req, res) => {
+  try {
+    const response = await axios.post(
+      'https://api.telnyx.com/v2/messages',
+      {
+        to: req.body.to,
+        from: fromNumber,
+        text: req.body.text
+      },
+      {
+        headers: {
+          Authorization: 'Bearer ' + API_KEY,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    res.json({ id: response.data.data.id });
+  } catch (err) {
+    res.status(500).json({ error: err.response && err.response.data || err.message });
+  }
+});
+
+app.get('/api/active-calls', async (req, res) => {
+  const CONNECTION_IDS = ['2950311615590827625', '2950540692578895477'];
+  const results = await Promise.allSettled(
+    CONNECTION_IDS.map(id =>
+      axios.get(`https://api.telnyx.com/v2/calls?connection_id=${id}`, {
+        headers: { Authorization: 'Bearer ' + API_KEY }
+      })
+    )
+  );
+  const data = results.flatMap(r =>
+    r.status === 'fulfilled' ? (r.value.data?.data || []) : []
+  );
+  const errors = results.filter(r => r.status === 'rejected').map(r => r.reason?.response?.status);
+  if (errors.length) console.warn('[active-calls] some connection IDs failed with statuses:', errors);
+  res.json({ data });
+});
+
+app.get('/api/recordings', async (req, res) => {
+  try {
+    const listRes = await axios.get('https://api.telnyx.com/v2/recordings', {
+      headers: { Authorization: 'Bearer ' + API_KEY },
+      params: { 'page[size]': 50 }
+    });
+    const recordings = listRes.data?.data || [];
+
+    const detailed = await Promise.all(
+      recordings.map(async rec => {
+        try {
+          const detailRes = await axios.get(`https://api.telnyx.com/v2/recordings/${rec.id}`, {
+            headers: { Authorization: 'Bearer ' + API_KEY }
+          });
+          const d = detailRes.data?.data || {};
+          return {
+            ...rec,
+            download_url: d.download_urls?.mp3 || d.download_url || null,
+            from: d.from || rec.from || null,
+            to: d.to || rec.to || null,
+          };
+        } catch (detailErr) {
+          console.error(`[recordings] detail fetch failed for ${rec.id}:`, detailErr.message);
+          return { ...rec, download_url: null, from: null, to: null };
+        }
+      })
+    );
+
+    res.json({ data: detailed });
+  } catch (err) {
+    console.error('[recordings] status:', err.response?.status);
+    console.error('[recordings] body:', JSON.stringify(err.response?.data));
+    console.error('[recordings] message:', err.message);
+    res.status(500).json({ error: err.response?.data || err.message });
+  }
+});
+
+// ── Lead call recordings from dialer ─────────────────────────────────────────
+// Returns dialer_calls rows with a recording_url that match the given phone number.
+// Only returns calls that ended at least 20 minutes ago so inbound leads have
+// time to be manually created before the recording tries to match.
+app.get('/api/lead-recordings', async (req, res) => {
+  try {
+    const phone = (req.query.phone || '').replace(/\D/g, '').slice(-10);
+    if (phone.length < 7) return res.json([]);
+
+    const cutoff = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+
+    const { data, error } = await supabaseAdmin
+      .from('dialer_calls')
+      .select('id, direction, from_number, to_number, recording_url, disposition, notes, started_at, ended_at, duration_seconds')
+      .not('recording_url', 'is', null)
+      .lt('started_at', cutoff)
+      .or(`from_number.ilike.%${phone},to_number.ilike.%${phone}`)
+      .order('started_at', { ascending: false })
+      .limit(50);
+
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) {
+    console.error('[lead-recordings]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/webhook/telnyx', verifyTelnyxSignature, async (req, res) => {
+  // Acknowledge immediately — Telnyx retries if it doesn't get a 200 fast
+  res.sendStatus(200);
+
+  const eventType = req.body?.data?.event_type;
+  const payload   = req.body?.data?.payload;
+  if (!eventType || !payload) return;
+
+  // ── Inbound SMS ─────────────────────────────────────────────────────────────
+  if (eventType === 'message.received') {
+    const from = payload.from?.phone_number || payload.from || null;
+    const text = payload.text || '';
+    const receivedAt = payload.received_at || new Date().toISOString();
+    if (!from || !text) return;
+
+    // Find or create conversation for this number
+    let { data: conv } = await supabase
+      .from('sms_conversations')
+      .select('id, unread_count')
+      .eq('contact_phone', from)
+      .maybeSingle();
+
+    if (!conv) {
+      const { data: newConv } = await supabase
+        .from('sms_conversations')
+        .insert({ contact_phone: from, last_message: text, last_message_at: receivedAt, unread_count: 1 })
+        .select().single();
+      conv = newConv;
+    } else {
+      await supabase.from('sms_conversations')
+        .update({ last_message: text, last_message_at: receivedAt, unread_count: (conv.unread_count || 0) + 1 })
+        .eq('id', conv.id);
+    }
+
+    if (conv) {
+      await supabase.from('sms_messages').insert({
+        conversation_id: conv.id,
+        body: text,
+        direction: 'inbound',
+        sent_at: receivedAt,
+      });
+    }
+    return;
+  }
+
+  // ── Call events (require call_session_id) ───────────────────────────────────
+  const sessionId = payload.call_session_id;
+  if (!sessionId) return;
+
+  if (eventType === 'call.hangup') {
+    if (payload.direction === 'inbound') {
+      // Webhook has no user session — use service-role client to bypass RLS
+      await supabaseAdmin.from('calls').upsert({
+        call_session_id: sessionId,
+        lead_phone: payload.from || null,
+        disposition: 'completed',
+        created_at: payload.start_time || new Date().toISOString(),
+      }, { onConflict: 'call_session_id' });
+    }
+  }
+
+  if (eventType === 'call.recording.saved') {
+    const recordingUrl = payload.public_recording_urls?.mp3
+      || payload.download_urls?.mp3
+      || null;
+    const duration = payload.duration_millis
+      ? Math.round(payload.duration_millis / 1000)
+      : null;
+
+    // Webhook has no user session — use service-role client to bypass RLS
+    const { data: existing } = await supabaseAdmin
+      .from('calls')
+      .select('id')
+      .eq('call_session_id', sessionId)
+      .maybeSingle();
+
+    if (existing) {
+      await supabaseAdmin.from('calls')
+        .update({ recording_url: recordingUrl, duration })
+        .eq('call_session_id', sessionId);
+    } else {
+      await supabaseAdmin.from('calls').upsert({
+        call_session_id: sessionId,
+        recording_url: recordingUrl,
+        duration,
+        disposition: 'completed',
+        created_at: payload.recording_started_at || new Date().toISOString(),
+      }, { onConflict: 'call_session_id' });
+    }
+  }
+});
+
+// ── Zoho helpers ──────────────────────────────────────────────────────────────
+
+// In-memory folder ID cache: agentId → { inbox, sent, updatedAt }
+const folderIdCache = new Map();
+
+async function getZohoFolderIds(agentId, accessToken, accountId, apiDomain) {
+  const cached = folderIdCache.get(agentId);
+  if (cached && Date.now() - cached.updatedAt < 3_600_000) return cached;
+
+  const foldersRes = await axios.get(`${apiDomain}/api/accounts/${accountId}/folders`, {
+    headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+  });
+  const folders = foldersRes.data?.data || [];
+  console.log('[zoho/folders] available folders:', folders.map(f => `${f.folderName}(type:${f.folderType},id:${f.folderId})`).join(', '));
+  const ids = {
+    inbox:     (folders.find(f => (f.folderType || '').toLowerCase() === 'inbox'))?.folderId || null,
+    sent:      (folders.find(f => (f.folderType || '').toLowerCase() === 'sent'))?.folderId  || null,
+    updatedAt: Date.now(),
+  };
+  folderIdCache.set(agentId, ids);
+  return ids;
+}
+
+async function getZohoToken(agentId) {
+  console.log('[getZohoToken] looking up agentId:', agentId, '(type:', typeof agentId, ')');
+
+  // Use service-role client — zoho_tokens RLS restricts anon key reads
+  const { data: row, error } = await supabaseAdmin
+    .from('zoho_tokens')
+    .select('access_token, refresh_token, expires_at, account_id, calendar_uid, api_domain, from_email')
+    .eq('id', agentId)
+    .maybeSingle();
+
+  console.log('[getZohoToken] raw result — error:', error, '| row:', row
+    ? { ...row, access_token: row.access_token ? row.access_token.slice(0, 12) + '…' : null }
+    : null);
+
+  if (error || !row?.access_token) {
+    const err = new Error('Zoho not connected. Reconnect via /auth/zoho?agentId=' + agentId);
+    err.status = 401;
+    throw err;
+  }
+
+  const expiresMs = row.expires_at ? new Date(row.expires_at).getTime() : null;
+  const needsRefresh = expiresMs && Date.now() > expiresMs - 300_000;
+  if (needsRefresh) {
+    const refreshRes = await axios.post(ZOHO_TOKEN_URL, null, {
+      params: {
+        refresh_token: row.refresh_token,
+        client_id:     ZOHO_CLIENT_ID,
+        client_secret: ZOHO_CLIENT_SECRET,
+        grant_type:    'refresh_token',
+      },
+    });
+    const { access_token, expires_in } = refreshRes.data;
+    const expires_at = new Date(Date.now() + (expires_in || 3600) * 1000).toISOString();
+    await supabaseAdmin.from('zoho_tokens').update({ access_token, expires_at }).eq('id', agentId);
+    row.access_token = access_token;
+    row.expires_at   = expires_at;
+  }
+
+  const apiDomain = row.api_domain || 'https://mail.zoho.com';
+  return {
+    accessToken:  row.access_token,
+    accountId:    row.account_id,
+    calendarUid:  row.calendar_uid,
+    fromEmail:    row.from_email,
+    apiDomain,
+    calendarBase: apiDomain.replace('mail.', 'calendar.'),
+  };
+}
+
+// ── 1. GET /auth/zoho ─────────────────────────────────────────────────────────
+app.get('/auth/zoho', (req, res) => {
+  if (!ZOHO_CLIENT_ID) return res.status(500).send('ZOHO_CLIENT_ID env var not set');
+  const { agentId = '' } = req.query;
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id:     ZOHO_CLIENT_ID,
+    scope:         ZOHO_SCOPES,
+    redirect_uri:  ZOHO_REDIRECT_URI,
+    access_type:   'offline',
+    prompt:        'consent',
+    state:         buildOAuthState(agentId),
+  });
+  res.redirect(`${ZOHO_AUTH_URL}?${params}`);
+});
+
+// ── 2. GET /auth/zoho/callback ────────────────────────────────────────────────
+app.get('/auth/zoho/callback', async (req, res) => {
+  const { code, state, error: oauthError } = req.query;
+  if (oauthError || !code) {
+    return res.status(400).send(`Zoho OAuth error: ${oauthError || 'no authorization code received'}`);
+  }
+
+  const agentId = parseOAuthState(state);
+  if (!agentId) {
+    return res.status(400).send('Invalid or expired OAuth state. Please try connecting again.');
+  }
+
+  try {
+    console.log('[zoho/callback] exchanging code for token...');
+    console.log('[zoho/callback] redirect_uri:', ZOHO_REDIRECT_URI);
+    console.log('[zoho/callback] agentId (from state):', agentId);
+
+    let tokenRes;
+    try {
+      tokenRes = await axios.post(ZOHO_TOKEN_URL, null, {
+        params: {
+          code,
+          client_id:     ZOHO_CLIENT_ID,
+          client_secret: ZOHO_CLIENT_SECRET,
+          redirect_uri:  ZOHO_REDIRECT_URI,
+          grant_type:    'authorization_code',
+        },
+      });
+      console.log('[zoho/callback] token response status:', tokenRes.status);
+      console.log('[zoho/callback] token response body:', JSON.stringify(tokenRes.data));
+    } catch (tokenErr) {
+      console.error('[zoho/callback] token exchange HTTP error:');
+      console.error('  status:', tokenErr.response?.status);
+      console.error('  headers:', JSON.stringify(tokenErr.response?.headers));
+      console.error('  body:', JSON.stringify(tokenErr.response?.data));
+      throw tokenErr;
+    }
+
+    const { access_token, refresh_token, expires_in, api_domain } = tokenRes.data;
+    if (!access_token) throw new Error('Token exchange failed: ' + JSON.stringify(tokenRes.data));
+
+    // Derive correct regional mail/calendar base URLs from the api_domain Zoho returns.
+    // api_domain looks like "https://www.zohoapis.com" (or .eu, .in, .com.au, .jp).
+    // Mail API lives at mail.zoho.{tld}, calendar at calendar.zoho.{tld}.
+    const rawApiDomain = api_domain || 'https://www.zohoapis.com';
+    const mailBase = rawApiDomain.replace('www.zohoapis', 'mail.zoho');
+    const calBase  = rawApiDomain.replace('www.zohoapis', 'calendar.zoho');
+    const expires_at = new Date(Date.now() + (expires_in || 3600) * 1000).toISOString();
+
+    console.log('[zoho/callback] api_domain from Zoho:', rawApiDomain);
+    console.log('[zoho/callback] derived mailBase:', mailBase);
+
+    const accountsUrl = `${mailBase}/api/accounts`;
+    console.log('[zoho/callback] fetching accounts from:', accountsUrl);
+    const accountsRes = await axios.get(accountsUrl, {
+      headers: { Authorization: `Zoho-oauthtoken ${access_token}` },
+    });
+    console.log('[zoho/callback] accounts response status:', accountsRes.status);
+    const accountData = accountsRes.data?.data?.[0];
+    const accountId = accountData?.accountId;
+    const fromEmail = accountData?.emailAddress?.find(e => e.isPrimary)?.mailId
+                   || accountData?.emailAddress?.[0]?.mailId
+                   || null;
+    if (!accountId) console.warn('[zoho/callback] accountId came back null — accounts response:', JSON.stringify(accountsRes.data));
+    console.log('[zoho/callback] fromEmail:', fromEmail);
+
+    let calendarUid = null;
+    try {
+      const calsRes = await axios.get(`${calBase}/api/v1/calendars`, {
+        headers: { Authorization: `Zoho-oauthtoken ${access_token}` },
+      });
+      calendarUid = calsRes.data?.calendars?.[0]?.uid;
+    } catch (calErr) {
+      console.warn('[zoho/callback] calendar fetch skipped:', calErr.message);
+    }
+
+    const { error: upsertError } = await supabaseAdmin.from('zoho_tokens').upsert({
+      id:           agentId,
+      access_token,
+      refresh_token,
+      expires_at,
+      account_id:   accountId,
+      calendar_uid: calendarUid,
+      api_domain:   mailBase,
+      from_email:   fromEmail,
+    }, { onConflict: 'id' });
+
+    if (upsertError) throw new Error('Failed to save token: ' + upsertError.message);
+
+    console.log(`[zoho/callback] saved token for agent ${agentId} — mail:${accountId} cal:${calendarUid} domain:${mailBase}`);
+
+    res.send(`
+      <html><body style="font-family:sans-serif;background:#080b10;color:#c9a84c;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+        <div style="text-align:center">
+          <p style="font-size:1.25rem;font-weight:bold">✓ Zoho connected</p>
+          <p style="color:#8892a4;font-size:.875rem">Mail &amp; Calendar ready. You can close this tab.</p>
+          <script>if(window.opener){window.opener.postMessage('zoho-connected','*');setTimeout(()=>window.close(),800);}</script>
+        </div>
+      </body></html>
+    `);
+  } catch (err) {
+    console.error('[zoho/callback]', err.response?.data || err.message);
+    res.status(500).send('Failed to connect Zoho: ' + (err.response?.data?.error || err.message));
+  }
+});
+
+// ── 3. GET /api/emails/inbox ──────────────────────────────────────────────────
+app.get('/api/emails/inbox', async (req, res) => {
+  const { limit = 50, start = 0 } = req.query;
+  try {
+    const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
+    let params = { folderPath: 'Inbox', limit: Number(limit), start: Number(start) };
+    try {
+      const ids = await getZohoFolderIds(req.userId, accessToken, accountId, apiDomain);
+      if (ids.inbox) params = { folderId: ids.inbox, limit: Number(limit), start: Number(start) };
+    } catch (fe) { console.warn('[emails/inbox] folder lookup skipped:', fe.message); }
+    const response = await axios.get(`${apiDomain}/api/accounts/${accountId}/messages/view`, {
+      headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+      params,
+    });
+    res.json(response.data);
+  } catch (err) {
+    console.error('[emails/inbox]', err.response?.data || err.message);
+    res.status(err.response?.status || err.status || 500).json({ error: err.response?.data || err.message });
+  }
+});
+
+// ── 4. GET /api/emails/sent ───────────────────────────────────────────────────
+app.get('/api/emails/sent', async (req, res) => {
+  const { limit = 50, start = 0 } = req.query;
+  try {
+    const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
+    let params = { folderPath: 'Sent', limit: Number(limit), start: Number(start) };
+    try {
+      const ids = await getZohoFolderIds(req.userId, accessToken, accountId, apiDomain);
+      if (ids.sent) params = { folderId: ids.sent, limit: Number(limit), start: Number(start) };
+    } catch (fe) { console.warn('[emails/sent] folder lookup skipped:', fe.message); }
+    const response = await axios.get(`${apiDomain}/api/accounts/${accountId}/messages/view`, {
+      headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+      params,
+    });
+    res.json(response.data);
+  } catch (err) {
+    console.error('[emails/sent]', err.response?.data || err.message);
+    res.status(err.response?.status || err.status || 500).json({ error: err.response?.data || err.message });
+  }
+});
+
+// ── 4b. GET /api/emails/folders ──────────────────────────────────────────────
+app.get('/api/emails/folders', async (req, res) => {
+  try {
+    const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
+    const foldersRes = await axios.get(`${apiDomain}/api/accounts/${accountId}/folders`, {
+      headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+    });
+    res.json(foldersRes.data);
+  } catch (err) {
+    console.error('[emails/folders]', err.response?.data || err.message);
+    res.status(err.response?.status || err.status || 500).json({ error: err.response?.data || err.message });
+  }
+});
+
+// ── 5. POST /api/emails/send (supports file attachments via multipart) ────────
+app.post('/api/emails/send', requireAuth, upload.array('attachments', 10), async (req, res) => {
+  const { to, cc, bcc, subject, body, leadId } = req.body;
+  if (!to || !subject) {
+    return res.status(400).json({ error: 'to and subject are required' });
+  }
+  try {
+    const [{ accessToken, accountId, apiDomain, fromEmail }, { data: agentRow }] = await Promise.all([
+      getZohoToken(req.userId),
+      supabase.from('agents').select('email').eq('id', req.userId).single(),
+    ]);
+
+    // Upload each attachment to Zoho and collect attachment paths
+    const attachmentPaths = [];
+    for (const file of (req.files || [])) {
+      const fd = new FormData();
+      fd.append('attach', file.buffer, { filename: file.originalname, contentType: file.mimetype });
+      const uploadRes = await axios.post(
+        `${apiDomain}/api/accounts/${accountId}/messages/attachments`,
+        fd,
+        { headers: { Authorization: `Zoho-oauthtoken ${accessToken}`, ...fd.getHeaders() } }
+      );
+      const attachPath = uploadRes.data?.data?.attachmentPath;
+      if (attachPath) attachmentPaths.push({ attachmentPath: attachPath });
+    }
+
+    const payload = {
+      fromAddress: fromEmail || agentRow?.email,
+      toAddress:   to,
+      ccAddress:   cc  || '',
+      bccAddress:  bcc || '',
+      subject,
+      content:     body || '',
+      mailFormat:  'html',
+    };
+    if (attachmentPaths.length) payload.attachments = attachmentPaths;
+
+    const sendRes = await axios.post(
+      `${apiDomain}/api/accounts/${accountId}/messages`,
+      payload,
+      { headers: { Authorization: `Zoho-oauthtoken ${accessToken}` } }
+    );
+    const zohoMessageId = sendRes.data?.data?.messageId;
+    // Use service-role client — emails RLS restricts anon key inserts
+    await supabaseAdmin.from('emails').insert({
+      lead_id:         leadId || null,
+      from_email:      agentRow?.email || '',
+      to_email:        to,
+      cc_email:        cc || null,
+      subject,
+      body:            body || '',
+      folder:          'sent',
+      read:            true,
+      sent_at:         new Date().toISOString(),
+      zoho_message_id: zohoMessageId,
+    });
+
+    res.json({ success: true, messageId: zohoMessageId });
+  } catch (err) {
+    console.error('[emails/send]', err.response?.data || err.message);
+    res.status(err.response?.status || err.status || 500).json({ error: err.response?.data || err.message });
+  }
+});
+
+// ── 5b. GET /api/emails/:messageId — full body + attachments ─────────────────
+app.get('/api/emails/:messageId', requireAuth, async (req, res) => {
+  try {
+    const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
+    const msgRes = await axios.get(
+      `${apiDomain}/api/accounts/${accountId}/messages/${req.params.messageId}`,
+      { headers: { Authorization: `Zoho-oauthtoken ${accessToken}` } }
+    );
+    res.json(msgRes.data);
+  } catch (err) {
+    console.error('[emails/:id]', err.response?.data || err.message);
+    res.status(err.response?.status || 500).json({ error: err.response?.data || err.message });
+  }
+});
+
+// ── 5c. GET /api/emails/:messageId/attachment/:attachmentId ──────────────────
+app.get('/api/emails/:messageId/attachment/:attachmentId', requireAuth, async (req, res) => {
+  try {
+    const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
+    const attRes = await axios.get(
+      `${apiDomain}/api/accounts/${accountId}/messages/${req.params.messageId}/attachments/${req.params.attachmentId}`,
+      { headers: { Authorization: `Zoho-oauthtoken ${accessToken}` }, responseType: 'stream' }
+    );
+    res.setHeader('Content-Type', attRes.headers['content-type'] || 'application/octet-stream');
+    res.setHeader('Content-Disposition', attRes.headers['content-disposition'] || 'attachment');
+    attRes.data.pipe(res);
+  } catch (err) {
+    console.error('[emails/attachment]', err.response?.data || err.message);
+    res.status(err.response?.status || 500).json({ error: err.message });
+  }
+});
+
+// ── 5d. DELETE /api/emails/:messageId ────────────────────────────────────────
+app.delete('/api/emails/:messageId', requireAuth, async (req, res) => {
+  try {
+    const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
+    await axios.delete(
+      `${apiDomain}/api/accounts/${accountId}/messages/${req.params.messageId}`,
+      { headers: { Authorization: `Zoho-oauthtoken ${accessToken}` } }
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[emails/delete]', err.response?.data || err.message);
+    res.status(err.response?.status || 500).json({ error: err.message });
+  }
+});
+
+// ── 5e. PATCH /api/emails/:messageId/unread ───────────────────────────────────
+app.patch('/api/emails/:messageId/unread', requireAuth, async (req, res) => {
+  try {
+    const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
+    await axios.put(
+      `${apiDomain}/api/accounts/${accountId}/updatemessage`,
+      { mode: 'markAsUnread', messageId: [req.params.messageId] },
+      { headers: { Authorization: `Zoho-oauthtoken ${accessToken}` } }
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[emails/unread]', err.response?.data || err.message);
+    res.status(err.response?.status || 500).json({ error: err.message });
+  }
+});
+
+// ── 6. GET /api/calendar/events ───────────────────────────────────────────────
+app.get('/api/calendar/events', async (req, res) => {
+  try {
+    const { accessToken, calendarUid, calendarBase } = await getZohoToken(req.userId);
+    if (!calendarUid) return res.status(409).json({ error: 'No calendar found. Reconnect Zoho.' });
+
+    const now    = new Date();
+    const future = new Date(now.getTime() + 30 * 86_400_000);
+    const fmt    = (d) => d.toISOString().slice(0, 10).replace(/-/g, '');
+
+    const response = await axios.get(`${calendarBase}/api/v1/calendars/${calendarUid}/events`, {
+      headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+      params:  { range: JSON.stringify({ start: fmt(now), end: fmt(future) }) },
+    });
+    res.json(response.data);
+  } catch (err) {
+    console.error('[calendar/events GET]', err.response?.data || err.message);
+    res.status(err.status || 500).json({ error: err.response?.data || err.message });
+  }
+});
+
+// ── 7. POST /api/calendar/events ─────────────────────────────────────────────
+app.post('/api/calendar/events', async (req, res) => {
+  const { title, start, end, description, timezone = 'America/New_York' } = req.body;
+  if (!title || !start || !end) {
+    return res.status(400).json({ error: 'title, start, and end are required' });
+  }
+  try {
+    const { accessToken, calendarUid, calendarBase } = await getZohoToken(req.userId);
+    if (!calendarUid) return res.status(409).json({ error: 'No calendar found. Reconnect Zoho.' });
+
+    const toZohoTime = (iso) =>
+      iso.replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '+0000').replace(/Z$/, '+0000');
+
+    const response = await axios.post(
+      `${calendarBase}/api/v1/calendars/${calendarUid}/events`,
+      {
+        title,
+        dateandtime: { start: toZohoTime(start), end: toZohoTime(end), timezone },
+        description: description || '',
+        reminders:   [{ minutes: -15, action: 'alert' }],
+      },
+      { headers: { Authorization: `Zoho-oauthtoken ${accessToken}`, 'Content-Type': 'application/json' } }
+    );
+    res.json(response.data);
+  } catch (err) {
+    console.error('[calendar/events POST]', err.response?.data || err.message);
+    res.status(err.status || 500).json({ error: err.response?.data || err.message });
+  }
+});
+
+// ── 8. DELETE /api/calendar/events/:id ───────────────────────────────────────
+app.delete('/api/calendar/events/:id', async (req, res) => {
+  const { id: eventId } = req.params;
+  try {
+    const { accessToken, calendarUid, calendarBase } = await getZohoToken(req.userId);
+    if (!calendarUid) return res.status(409).json({ error: 'No calendar found. Reconnect Zoho.' });
+
+    await axios.delete(`${calendarBase}/api/v1/calendars/${calendarUid}/events/${eventId}`, {
+      headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+    });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[calendar/events DELETE]', err.response?.data || err.message);
+    res.status(err.status || 500).json({ error: err.response?.data || err.message });
+  }
+});
+
+// ── POST /api/application-requests ───────────────────────────────────────────
+// Insert + send to SignWell in one step, server-side, to avoid client RLS issues.
+app.post('/api/application-requests', requireAuth, async (req, res) => {
+  const {
+    contact_name, business_name, client_email, deal_id,
+    phone, dba, business_address, owner_address,
+    ein, time_in_business, dob, ssn,
+  } = req.body;
+
+  if (!contact_name || !business_name || !client_email) {
+    return res.status(400).json({ error: 'contact_name, business_name, and client_email are required' });
+  }
+
+  const apiKey     = process.env.SIGNWELL_API_KEY;
+  const templateId = process.env.SIGNWELL_TEMPLATE_ID;
+  if (!apiKey || !templateId) {
+    return res.status(500).json({ error: 'SignWell not configured — set SIGNWELL_API_KEY and SIGNWELL_TEMPLATE_ID in Railway env vars' });
+  }
+
+  // 1. Insert record using admin client (bypasses RLS)
+  const { data: request, error: insertErr } = await supabaseAdmin
+    .from('application_requests')
+    .insert({
+      agent_id: req.userId,
+      contact_name, business_name, client_email,
+      deal_id:          deal_id          || null,
+      phone:            phone            || '',
+      dba:              dba              || '',
+      business_address: business_address || '',
+      owner_address:    owner_address    || '',
+      ein:              ein              || '',
+      time_in_business: time_in_business || '',
+      dob:              dob              || '',
+      ssn:              ssn              || '',
+    })
+    .select()
+    .single();
+
+  if (insertErr) return res.status(500).json({ error: insertErr.message });
+
+  // 2. Send via SignWell immediately
+  try {
+    const templateFields = [];
+    if (business_name)    templateFields.push({ api_id: 'business-name',    value: business_name });
+    if (contact_name)     templateFields.push({ api_id: 'owner-name',       value: contact_name });
+    if (dba)              templateFields.push({ api_id: 'dba',              value: dba });
+    if (business_address) templateFields.push({ api_id: 'business-address', value: business_address });
+    if (owner_address)    templateFields.push({ api_id: 'owner-address',    value: owner_address });
+    if (ein)              templateFields.push({ api_id: 'ein',              value: ein });
+    if (time_in_business) templateFields.push({ api_id: 'tib',             value: time_in_business });
+    if (dob)              templateFields.push({ api_id: 'dob',             value: dob });
+
+    const swRes = await axios.post(
+      'https://www.signwell.com/api/v1/document_templates/documents',
+      {
+        template_id: templateId,
+        send_email: true,
+        draft: false,
+        recipients: [{ id: '1', email: client_email, name: contact_name || client_email, placeholder_name: 'funding application' }],
+        template_fields: templateFields,
+      },
+      { headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' } }
+    );
+
+    const documentId = swRes.data?.id || swRes.data?.document?.id || null;
+    const now        = new Date().toISOString();
+
+    await supabaseAdmin.from('application_requests').update({
+      status: 'approved', reviewed_by: req.userId, reviewed_at: now,
+      signwell_document_id: documentId, signwell_sent_at: now,
+    }).eq('id', request.id);
+
+    if (deal_id) {
+      await supabaseAdmin.from('deals').update({
+        signwell_document_id: documentId, application_sent_at: now,
+      }).eq('id', deal_id);
+    }
+
+    console.log(`[app-requests] sent to ${client_email} doc ${documentId}`);
+    res.json({ success: true, documentId, requestId: request.id });
+  } catch (err) {
+    console.error('[app-requests POST] SignWell error', err.response?.status, JSON.stringify(err.response?.data));
+    res.status(err.response?.status || 500).json({ error: err.response?.data ?? err.message });
+  }
+});
+
+// ── POST /api/application-requests/:id/approve ───────────────────────────────
+app.post('/api/application-requests/:id/approve', async (req, res) => {
+
+  const { data: request } = await supabaseAdmin
+    .from('application_requests').select('*').eq('id', req.params.id).single();
+  if (!request)                   return res.status(404).json({ error: 'Request not found' });
+  if (request.status !== 'pending') return res.status(400).json({ error: 'Request is not pending' });
+
+  const apiKey     = process.env.SIGNWELL_API_KEY;
+  const templateId = process.env.SIGNWELL_TEMPLATE_ID;
+  if (!apiKey || !templateId) return res.status(500).json({ error: 'SignWell not configured' });
+
+  try {
+    const templateFields = [];
+    if (request.business_name)    templateFields.push({ api_id: 'business-name',    value: request.business_name });
+    if (request.contact_name)     templateFields.push({ api_id: 'owner-name',       value: request.contact_name });
+    if (request.dba)              templateFields.push({ api_id: 'dba',              value: request.dba });
+    if (request.business_address) templateFields.push({ api_id: 'business-address', value: request.business_address });
+    if (request.owner_address)    templateFields.push({ api_id: 'owner-address',    value: request.owner_address });
+    if (request.ein)              templateFields.push({ api_id: 'ein',              value: request.ein });
+    if (request.time_in_business) templateFields.push({ api_id: 'tib',             value: request.time_in_business });
+    if (request.dob)              templateFields.push({ api_id: 'dob',              value: request.dob });
+
+    const swRes = await axios.post(
+      'https://www.signwell.com/api/v1/document_templates/documents',
+      {
+        template_id: templateId,
+        send_email: true,
+        draft: false,
+        recipients: [{ id: '1', email: request.client_email, name: request.contact_name || request.client_email, placeholder_name: 'funding application' }],
+        template_fields: templateFields,
+      },
+      { headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' } }
+    );
+
+    const documentId = swRes.data?.id || swRes.data?.document?.id || null;
+    const now        = new Date().toISOString();
+
+    await supabaseAdmin.from('application_requests').update({
+      status: 'approved', reviewed_by: req.userId, reviewed_at: now,
+      signwell_document_id: documentId, signwell_sent_at: now,
+    }).eq('id', request.id);
+
+    if (request.deal_id) {
+      await supabaseAdmin.from('deals').update({
+        signwell_document_id: documentId, application_sent_at: now,
+      }).eq('id', request.deal_id);
+    }
+
+    console.log(`[app-requests] approved ${request.id} — sent to ${request.client_email} doc ${documentId}`);
+    res.json({ success: true, documentId });
+  } catch (err) {
+    console.error('[app-requests/approve] SignWell error', err.response?.status, JSON.stringify(err.response?.data));
+    res.status(err.response?.status || 500).json({ error: err.response?.data ?? err.message });
+  }
+});
+
+// ── POST /api/application-requests/:id/reject ─────────────────────────────────
+app.post('/api/application-requests/:id/reject', requireAuth, async (req, res) => {
+  const { data: me } = await supabase.from('agents').select('role').eq('id', req.userId).single();
+  if (me?.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+
+  const { note = '' } = req.body;
+  const { error } = await supabaseAdmin.from('application_requests').update({
+    status: 'rejected', reviewed_by: req.userId,
+    reviewed_at: new Date().toISOString(), rejection_note: note || null,
+  }).eq('id', req.params.id).eq('status', 'pending');
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true });
+});
+
+// ── POST /api/signwell/send-for-signature ─────────────────────────────────────
+app.post('/api/signwell/send-for-signature', async (req, res) => {
+  const { clientEmail, contactName, businessName, dealId } = req.body;
+  if (!clientEmail) return res.status(400).json({ error: 'clientEmail is required' });
+
+  const apiKey     = process.env.SIGNWELL_API_KEY;
+  const templateId = process.env.SIGNWELL_TEMPLATE_ID;
+  if (!apiKey || !templateId) {
+    return res.status(500).json({ error: 'SignWell not configured — set SIGNWELL_API_KEY and SIGNWELL_TEMPLATE_ID in Railway env vars' });
+  }
+
+  try {
+    const templateFields = [];
+    if (businessName) templateFields.push({ api_id: 'business-name', value: businessName });
+    if (contactName)  templateFields.push({ api_id: 'owner-name',    value: contactName });
+
+    const swRes = await axios.post(
+      'https://www.signwell.com/api/v1/document_templates/documents',
+      {
+        template_id: templateId,
+        recipients: [{
+          id: '1',
+          email: clientEmail,
+          name: contactName || clientEmail,
+          placeholder_name: 'funding application',
+        }],
+        template_fields: templateFields,
+      },
+      { headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' } }
+    );
+
+    const documentId = swRes.data?.id || swRes.data?.document?.id || null;
+    const sentAt     = new Date().toISOString();
+
+    if (dealId) {
+      await supabase.from('deals').update({
+        signwell_document_id: documentId,
+        application_sent_at:  sentAt,
+      }).eq('id', dealId);
+    }
+
+    console.log(`[signwell] sent application to ${clientEmail} — doc ${documentId}`);
+    res.json({ success: true, documentId, sentAt });
+  } catch (err) {
+    console.error('[signwell/send]', err.response?.data || err.message);
+    res.status(err.response?.status || 500).json({ error: err.response?.data || err.message });
+  }
+});
+
+// ── POST /api/send-application ────────────────────────────────────────────────
+app.post('/api/send-application', async (req, res) => {
+  const {
+    businessName, dba, businessAddress, businessStartDate, ein,
+    ownerName, ownerSS, ownerDOB, ownerAddress, printName,
+  } = req.body;
+
+  const blank = '___________';
+  const v = (val) => (val && String(val).trim()) ? String(val).trim() : blank;
+
+  const submittedAt = new Date().toLocaleString('en-US', {
+    timeZone: 'America/New_York',
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    body { margin: 0; padding: 0; background: #f3f4f6; font-family: Arial, Helvetica, sans-serif; }
+    .wrap { max-width: 660px; margin: 30px auto; background: #ffffff; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.12); }
+    .hdr { background: #080b10; padding: 28px 40px; text-align: center; }
+    .hdr-co { color: #c9a84c; font-size: 20px; font-weight: bold; letter-spacing: 2px; margin: 0 0 4px; }
+    .hdr-sub { color: #8892a4; font-size: 13px; margin: 0; letter-spacing: 0.5px; }
+    .body { padding: 32px 40px; }
+    .sec { margin-bottom: 28px; }
+    .sec-title { color: #c9a84c; font-size: 10px; font-weight: bold; letter-spacing: 3px; text-transform: uppercase; padding-bottom: 8px; border-bottom: 2px solid #c9a84c; margin-bottom: 16px; }
+    .row { display: flex; align-items: baseline; margin-bottom: 10px; gap: 12px; }
+    .lbl { color: #6b7280; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; width: 160px; flex-shrink: 0; }
+    .val { color: #111827; font-size: 14px; border-bottom: 1px solid #d1d5db; flex: 1; padding-bottom: 3px; min-height: 20px; }
+    .ftr { background: #f9fafb; border-top: 1px solid #e5e7eb; padding: 14px 40px; text-align: center; }
+    .ftr p { color: #9ca3af; font-size: 11px; margin: 0; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hdr">
+      <p class="hdr-co">SWIFT PATH CAPITAL LLC</p>
+      <p class="hdr-sub">Merchant Cash Advance Application</p>
+    </div>
+    <div class="body">
+      <div class="sec">
+        <div class="sec-title">Business Information</div>
+        <div class="row"><span class="lbl">Business Name</span><span class="val">${v(businessName)}</span></div>
+        <div class="row"><span class="lbl">DBA</span><span class="val">${v(dba)}</span></div>
+        <div class="row"><span class="lbl">Business Address</span><span class="val">${v(businessAddress)}</span></div>
+        <div class="row"><span class="lbl">Business Start Date</span><span class="val">${v(businessStartDate)}</span></div>
+        <div class="row"><span class="lbl">EIN</span><span class="val">${v(ein)}</span></div>
+      </div>
+      <div class="sec">
+        <div class="sec-title">Owner Information</div>
+        <div class="row"><span class="lbl">Owner Name</span><span class="val">${v(ownerName)}</span></div>
+        <div class="row"><span class="lbl">Social Security #</span><span class="val">${v(ownerSS)}</span></div>
+        <div class="row"><span class="lbl">Date of Birth</span><span class="val">${v(ownerDOB)}</span></div>
+        <div class="row"><span class="lbl">Owner Address</span><span class="val">${v(ownerAddress)}</span></div>
+      </div>
+      <div class="sec">
+        <div class="sec-title">Signature</div>
+        <div class="row"><span class="lbl">Print Name</span><span class="val">${v(printName)}</span></div>
+      </div>
+    </div>
+    <div class="ftr">
+      <p>Swift Path Capital LLC &bull; Submitted ${submittedAt} ET</p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  try {
+    const { accessToken, accountId, apiDomain } = await getZohoToken(req.userId);
+    const sendRes = await axios.post(
+      `${apiDomain}/api/accounts/${accountId}/messages`,
+      {
+        toAddress:   'submissions@swiftpathtocapital.com',
+        subject:     `New MCA Application — ${v(businessName)}`,
+        content:     html,
+        mailFormat:  'html',
+      },
+      { headers: { Authorization: `Zoho-oauthtoken ${accessToken}` } }
+    );
+    const messageId = sendRes.data?.data?.messageId;
+    res.json({ success: true, id: messageId });
+  } catch (err) {
+    console.error('[send-application]', err.response?.data || err.message);
+    res.status(err.status || 500).json({ error: err.response?.data || err.message });
+  }
+});
+
+// ── Agent management (admin only) ────────────────────────────────────────────
+app.post('/api/agents/create', requireAuth, async (req, res) => {
+  try {
+    const { name, email, password, role, did, sip_username, sip_password } = req.body;
+    if (!name || !email || !password) return res.status(400).json({ error: 'name, email, and password are required' });
+
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.VITE_SUPABASE_URL;
+    if (!serviceKey) return res.status(500).json({ error: 'Service role key not configured' });
+
+    // Create auth user via admin API (does NOT sign in as the new user)
+    const authRes = await axios.post(
+      `${supabaseUrl}/auth/v1/admin/users`,
+      { email, password, email_confirm: true },
+      { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } }
+    );
+    const newUser = authRes.data;
+
+    // Insert agents row
+    const { data: agent, error: agentError } = await supabaseAdmin
+      .from('agents')
+      .insert({ id: newUser.id, name, email, role: role || 'agent', did: did || null, sip_username: sip_username || null, sip_password: sip_password || null })
+      .select()
+      .single();
+
+    if (agentError) {
+      // Roll back auth user if agents insert fails
+      await axios.delete(`${supabaseUrl}/auth/v1/admin/users/${newUser.id}`, {
+        headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` }
+      }).catch(() => {});
+      return res.status(500).json({ error: agentError.message });
+    }
+
+    res.json(agent);
+  } catch (err) {
+    const msg = err.response?.data?.msg || err.response?.data?.message || err.message;
+    res.status(err.response?.status || 500).json({ error: msg });
+  }
+});
+
+app.patch('/api/agents/:id/password', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body;
+    if (!password || password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.VITE_SUPABASE_URL;
+
+    await axios.put(
+      `${supabaseUrl}/auth/v1/admin/users/${id}`,
+      { password },
+      { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } }
+    );
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.response?.data?.message || err.message });
+  }
+});
+
+app.delete('/api/agents/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.VITE_SUPABASE_URL;
+
+    // Delete agents row first
+    await supabaseAdmin.from('agents').delete().eq('id', id);
+
+    // Delete auth user
+    await axios.delete(`${supabaseUrl}/auth/v1/admin/users/${id}`, {
+      headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` }
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.response?.data?.message || err.message });
+  }
+});
+
+
+// ── DocuSeal e-signature ──────────────────────────────────────────────────────
+
+function dsHeaders() {
+  return { 'X-Auth-Token': process.env.DOCUSEAL_API_KEY, 'Content-Type': 'application/json' };
+}
+
+app.post('/api/docuseal/send', async (req, res) => {
+  const {
+    clientEmail, contactName, businessName, dealId, leadId,
+    dba, businessAddress, businessStartDate, ein,
+    ownerSSN, ownerDOB, ownerAddress, phone,
+  } = req.body;
+  if (!clientEmail) return res.status(400).json({ error: 'clientEmail is required' });
+
+  const baseUrl    = (process.env.DOCUSEAL_URL || '').replace(/\/$/, '');
+  const apiKey     = process.env.DOCUSEAL_API_KEY;
+  const templateId = process.env.DOCUSEAL_TEMPLATE_ID;
+
+  if (!baseUrl || !apiKey || !templateId) {
+    return res.status(500).json({ error: 'DocuSeal not configured — set DOCUSEAL_URL, DOCUSEAL_API_KEY, and DOCUSEAL_TEMPLATE_ID' });
+  }
+
+  try {
+    const fields = [];
+    if (businessName)      fields.push({ name: 'Business Name',       default_value: businessName });
+    if (dba)               fields.push({ name: 'DBA',                 default_value: dba });
+    if (businessAddress)   fields.push({ name: 'Business Address',    default_value: businessAddress });
+    if (businessStartDate) fields.push({ name: 'Business Start Date', default_value: businessStartDate });
+    if (ein)               fields.push({ name: 'EIN',                 default_value: ein });
+    if (contactName)       fields.push({ name: 'Owner Name',          default_value: contactName });
+    if (ownerSSN)          fields.push({ name: 'Owner SSN',           default_value: ownerSSN });
+    if (ownerDOB)          fields.push({ name: 'Owner DOB',           default_value: ownerDOB });
+    if (ownerAddress)      fields.push({ name: 'Owner Address',       default_value: ownerAddress });
+    if (phone)             fields.push({ name: 'Phone',               default_value: phone });
+
+    const dsRes = await axios.post(
+      `${baseUrl}/api/submissions`,
+      {
+        template_id: parseInt(templateId, 10),
+        send_email:  true,
+        submitters: [{
+          role:   'First Party',
+          email:  clientEmail,
+          name:   contactName || clientEmail,
+          ...(fields.length ? { fields } : {}),
+        }],
+      },
+      { headers: dsHeaders() }
+    );
+
+    const submitters   = Array.isArray(dsRes.data) ? dsRes.data : [dsRes.data];
+    const submitter    = submitters[0] || {};
+    const submissionId = String(submitter.submission_id || submitter.id || '');
+    const slug         = submitter.slug || '';
+    const signingUrl   = slug ? `${baseUrl}/s/${slug}` : null;
+
+    const { data: row, error: dbErr } = await supabase
+      .from('docuseal_submissions')
+      .insert({
+        submission_id: submissionId,
+        signing_url:   signingUrl,
+        status:        'sent',
+        deal_id:       dealId  || null,
+        lead_id:       leadId  || null,
+        agent_id:      req.userId,
+        client_email:  clientEmail,
+        contact_name:  contactName  || null,
+        business_name: businessName || null,
+      })
+      .select()
+      .single();
+
+    if (dbErr) console.error('[docuseal] db insert error:', dbErr.message);
+    res.json({ success: true, submissionId, signingUrl, id: row?.id });
+  } catch (err) {
+    const detail = err.response?.data?.error || err.response?.data || err.message;
+    console.error('[docuseal/send]', detail);
+    res.status(err.response?.status || 500).json({ error: typeof detail === 'string' ? detail : JSON.stringify(detail) });
+  }
+});
+
+app.post('/webhook/docuseal', async (req, res) => {
+  try {
+    const { event_type, data } = req.body || {};
+    if (event_type === 'submission.completed' || event_type === 'form.completed') {
+      const submissionId = String(data?.submission?.id || data?.submitter?.submission_id || '');
+      if (submissionId) {
+        await supabaseAdmin
+          .from('docuseal_submissions')
+          .update({ status: 'completed' })
+          .eq('submission_id', submissionId);
+      }
+    }
+    res.json({ received: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ── SPA fallback ──────────────────────────────────────────────────────────────
 app.get('*', (req, res) => {
@@ -157,7 +1373,5 @@ app.get('*', (req, res) => {
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  const API_KEY = process.env.TELNYX_API_KEY;
   console.log('TELNYX_API_KEY:', API_KEY ? `set (${API_KEY.slice(0, 8)}...)` : 'MISSING');
 });
-
