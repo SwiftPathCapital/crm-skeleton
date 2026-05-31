@@ -4,6 +4,7 @@ import { resolve } from 'path'
 
 export default defineConfig({
   root: resolve(__dirname, 'src/renderer'),
+  envDir: __dirname,
   build: {
     outDir: resolve(__dirname, 'server/dist'),
     emptyOutDir: true,
