@@ -15,7 +15,6 @@ import Settings from "./pages/Settings";
 import Messaging from "./pages/Messaging";
 import LiveTransfers from "./pages/LiveTransfers";
 import CallbacksPage from "./pages/CallbacksPage";
-import SouthendPortal from "./pages/SouthendPortal";
 import CallbackReminder from "./components/CallbackReminder";
 import Login from "./pages/Login";
 import TourGuide from "./components/TourGuide";
@@ -90,6 +89,7 @@ function AppShell() {
   const [unreadMsgCount,    setUnreadMsgCount]    = useState(0);
   const [tourActive,        setTourActive]        = useState(false);
   const [callbackBadge,     setCallbackBadge]     = useState(0);
+  const [focusLeadId,       setFocusLeadId]       = useState(null);
 
   useEffect(() => {
     if (agent) fetchLeads();
@@ -180,7 +180,7 @@ function AppShell() {
               <span className="ml-3 text-[#4a5568]">Loading your leads...</span>
             </div>
           ) : (
-            <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} onOpenEmailClient={openEmailClient} />
+            <MyLeads leads={leads} onSaveLead={handleSaveLead} onRefresh={fetchLeads} onOpenEmailClient={openEmailClient} focusLeadId={focusLeadId} onFocusHandled={() => setFocusLeadId(null)} />
           )}
         </PageSlot>
 
@@ -207,7 +207,7 @@ function AppShell() {
         )}
 
         <PageSlot active={activeView === "deal-pipeline"} padded>
-          <DealPipeline agent={agent} />
+          <DealPipeline agent={agent} onViewLead={(leadId) => { setFocusLeadId(leadId); setActiveView("my-leads"); }} />
         </PageSlot>
 
         <PageSlot active={activeView === "clients"} padded>
@@ -238,9 +238,6 @@ function AppShell() {
           <CallbacksPage />
         </PageSlot>
 
-        <PageSlot active={activeView === "southend-portal"}>
-          <SouthendPortal />
-        </PageSlot>
       </main>
 
       {tourActive && (
