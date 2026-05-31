@@ -10,10 +10,20 @@ const FormData = require('form-data');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
-// Startup diagnostics — shows in Railway logs so we can debug missing files
+process.on('uncaughtException', (err) => {
+  console.error('[CRASH] uncaughtException:', err.message, err.stack);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[CRASH] unhandledRejection:', reason);
+});
+
+// Startup diagnostics
+const distPath = path.join(__dirname, 'dist');
 console.log('[startup] __dirname:', __dirname);
-console.log('[startup] dist/index.html exists:', fs.existsSync(path.join(__dirname, 'dist', 'index.html')));
-console.log('[startup] dist contents:', (() => { try { return fs.readdirSync(path.join(__dirname, 'dist')); } catch(e) { return 'MISSING: ' + e.message; } })());
+console.log('[startup] dist/index.html exists:', fs.existsSync(path.join(distPath, 'index.html')));
+console.log('[startup] dist/assets exists:', fs.existsSync(path.join(distPath, 'assets')));
+try { console.log('[startup] dist/assets contents:', fs.readdirSync(path.join(distPath, 'assets'))); }
+catch(e) { console.log('[startup] dist/assets MISSING:', e.message); }
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -72,6 +82,8 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: false }));
 app.use(express.static(path.join(__dirname, 'dist')));
+
+app.get('/health', (req, res) => res.json({ ok: true, port: process.env.PORT }));
 
 // ── Auth middleware ───────────────────────────────────────────────────────────
 async function requireAuth(req, res, next) {
@@ -1371,9 +1383,20 @@ app.post('/webhook/docuseal', async (req, res) => {
   }
 });
 
+// ── Express error handler ─────────────────────────────────────────────────────
+app.use((err, req, res, next) => {
+  console.error('[express-error]', req.method, req.url, err.message);
+  res.status(err.status || 500).json({ error: err.message });
+});
+
 // ── SPA fallback ──────────────────────────────────────────────────────────────
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'), (err) => {
+    if (err) {
+      console.error('[sendFile error]', err.message);
+      res.status(500).send('dist/index.html not found: ' + err.message);
+    }
+  });
 });
 
 const PORT = process.env.PORT || 3001;

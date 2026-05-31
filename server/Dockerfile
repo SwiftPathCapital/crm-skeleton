@@ -4,5 +4,5 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY index.js ./
 COPY dist ./dist
-EXPOSE 3001
+EXPOSE 8080
 CMD ["node", "index.js"]
