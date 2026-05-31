@@ -13,7 +13,11 @@ function dsHeaders() {
 
 // ── POST /api/docuseal/send ───────────────────────────────────────────────────
 router.post('/api/docuseal/send', async (req, res) => {
-  const { clientEmail, contactName, businessName, dealId, leadId } = req.body;
+  const {
+    clientEmail, contactName, businessName, dealId, leadId,
+    dba, businessAddress, businessStartDate, ein,
+    ownerSSN, ownerDOB, ownerAddress, phone,
+  } = req.body;
   if (!clientEmail) return res.status(400).json({ error: 'clientEmail is required' });
 
   const baseUrl    = (process.env.DOCUSEAL_URL || '').replace(/\/$/, '');
@@ -28,8 +32,16 @@ router.post('/api/docuseal/send', async (req, res) => {
 
   try {
     const fields = [];
-    if (businessName) fields.push({ name: 'Business Name', default_value: businessName });
-    if (contactName)  fields.push({ name: 'Full Name',     default_value: contactName });
+    if (businessName)      fields.push({ name: 'Business Name',       default_value: businessName });
+    if (dba)               fields.push({ name: 'DBA',                 default_value: dba });
+    if (businessAddress)   fields.push({ name: 'Business Address',    default_value: businessAddress });
+    if (businessStartDate) fields.push({ name: 'Business Start Date', default_value: businessStartDate });
+    if (ein)               fields.push({ name: 'EIN',                 default_value: ein });
+    if (contactName)       fields.push({ name: 'Owner Name',          default_value: contactName });
+    if (ownerSSN)          fields.push({ name: 'Owner SSN',           default_value: ownerSSN });
+    if (ownerDOB)          fields.push({ name: 'Owner DOB',           default_value: ownerDOB });
+    if (ownerAddress)      fields.push({ name: 'Owner Address',       default_value: ownerAddress });
+    if (phone)             fields.push({ name: 'Phone',               default_value: phone });
 
     const dsRes = await axios.post(
       `${baseUrl}/api/submissions`,

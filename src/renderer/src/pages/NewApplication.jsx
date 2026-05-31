@@ -8,7 +8,9 @@ const API_BASE =
     : "";
 
 const EMPTY_FORM = {
-  contact_name: "", business_name: "", client_email: "",
+  client_email: "", contact_name: "", business_name: "",
+  dba: "", business_address: "", business_start_date: "",
+  ein: "", owner_ssn: "", owner_dob: "", owner_address: "", phone: "",
 };
 
 function fmt(iso) {
@@ -27,7 +29,7 @@ export default function NewApplication({ agent }) {
 
   const [subs,        setSubs]        = useState([]);
   const [subsLoading, setSubsLoading] = useState(true);
-  const [agents,      setAgents]      = useState([]);
+  const [agentMap,    setAgentMap]    = useState({});
 
   const fetchSubs = useCallback(async () => {
     setSubsLoading(true);
@@ -48,7 +50,7 @@ export default function NewApplication({ agent }) {
       supabase.from("agents").select("id, name, email").then(({ data }) => {
         const map = {};
         (data || []).forEach(a => { map[a.id] = a.name || a.email; });
-        setAgents(map);
+        setAgentMap(map);
       });
     }
   }, [userId, fetchSubs]);
@@ -73,16 +75,24 @@ export default function NewApplication({ agent }) {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          clientEmail:   form.client_email.trim(),
-          contactName:   form.contact_name.trim() || null,
-          businessName:  form.business_name.trim() || null,
+          clientEmail:        form.client_email.trim(),
+          contactName:        form.contact_name.trim()         || null,
+          businessName:       form.business_name.trim()        || null,
+          dba:                form.dba.trim()                  || null,
+          businessAddress:    form.business_address.trim()     || null,
+          businessStartDate:  form.business_start_date.trim()  || null,
+          ein:                form.ein.trim()                  || null,
+          ownerSSN:           form.owner_ssn.trim()            || null,
+          ownerDOB:           form.owner_dob.trim()            || null,
+          ownerAddress:       form.owner_address.trim()        || null,
+          phone:              form.phone.trim()                || null,
         }),
       });
       const json = await res.json();
       if (!res.ok) {
         setSubmitMsg({ ok: false, msg: json.error || `Server error ${res.status}` });
       } else {
-        setSubmitMsg({ ok: true, msg: `Application sent to ${form.client_email.trim()}.`, url: json.signingUrl });
+        setSubmitMsg({ ok: true, msg: `Sent to ${form.client_email.trim()}.`, url: json.signingUrl });
         setForm(EMPTY_FORM);
         fetchSubs();
       }
@@ -101,13 +111,11 @@ export default function NewApplication({ agent }) {
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
-      <div className="flex items-center justify-between mb-6 flex-shrink-0">
-        <div>
-          <h1 className="text-white text-2xl font-bold tracking-tight">Applications</h1>
-          <p className="text-[#4a5568] text-sm mt-1">
-            Send a DocuSeal signing link to the client — they'll receive an email with a link to review and sign.
-          </p>
-        </div>
+      <div className="mb-6 flex-shrink-0">
+        <h1 className="text-white text-2xl font-bold tracking-tight">Applications</h1>
+        <p className="text-[#4a5568] text-sm mt-1">
+          Fill in what you have — the client completes anything left blank when they sign.
+        </p>
       </div>
 
       <div className="flex flex-col gap-8 pb-8">
@@ -116,35 +124,63 @@ export default function NewApplication({ agent }) {
         <section>
           <SectionTitle>Send for Signature</SectionTitle>
           <div className="bg-[#0d1017] border border-[#1e2130] rounded-xl p-6">
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-5">
+
+              <GroupHeader>Client Contact</GroupHeader>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <Field label="Client Email" required>
-                  <input
-                    type="email"
-                    value={form.client_email}
-                    onChange={e => setField("client_email", e.target.value)}
-                    placeholder="client@example.com"
-                    className={inputCls}
-                    required
-                  />
+                  <input type="email" value={form.client_email} onChange={e => setField("client_email", e.target.value)}
+                    placeholder="client@example.com" className={inputCls} required />
                 </Field>
-                <Field label="Contact Name">
-                  <input
-                    type="text"
-                    value={form.contact_name}
-                    onChange={e => setField("contact_name", e.target.value)}
-                    placeholder="John Smith"
-                    className={inputCls}
-                  />
+                <Field label="Owner / Contact Name">
+                  <input type="text" value={form.contact_name} onChange={e => setField("contact_name", e.target.value)}
+                    placeholder="John Smith" className={inputCls} />
                 </Field>
+                <Field label="Phone">
+                  <input type="tel" value={form.phone} onChange={e => setField("phone", e.target.value)}
+                    placeholder="(555) 555-5555" className={inputCls} />
+                </Field>
+              </div>
+
+              <GroupHeader>Business Info</GroupHeader>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Field label="Business Name">
-                  <input
-                    type="text"
-                    value={form.business_name}
-                    onChange={e => setField("business_name", e.target.value)}
-                    placeholder="Acme LLC"
-                    className={inputCls}
-                  />
+                  <input type="text" value={form.business_name} onChange={e => setField("business_name", e.target.value)}
+                    placeholder="Acme LLC" className={inputCls} />
+                </Field>
+                <Field label="DBA">
+                  <input type="text" value={form.dba} onChange={e => setField("dba", e.target.value)}
+                    placeholder="Trading name if different" className={inputCls} />
+                </Field>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <Field label="Business Address">
+                  <input type="text" value={form.business_address} onChange={e => setField("business_address", e.target.value)}
+                    placeholder="123 Main St, City, ST 00000" className={inputCls} />
+                </Field>
+                <Field label="Business Start Date">
+                  <input type="date" value={form.business_start_date} onChange={e => setField("business_start_date", e.target.value)}
+                    className={inputCls} />
+                </Field>
+                <Field label="EIN">
+                  <input type="text" value={form.ein} onChange={e => setField("ein", e.target.value)}
+                    placeholder="12-3456789" className={inputCls} />
+                </Field>
+              </div>
+
+              <GroupHeader>Owner Info</GroupHeader>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <Field label="Owner Address">
+                  <input type="text" value={form.owner_address} onChange={e => setField("owner_address", e.target.value)}
+                    placeholder="123 Home St, City, ST 00000" className={inputCls} />
+                </Field>
+                <Field label="Date of Birth">
+                  <input type="text" value={form.owner_dob} onChange={e => setField("owner_dob", e.target.value)}
+                    placeholder="MM/DD/YYYY" className={inputCls} />
+                </Field>
+                <Field label="SSN">
+                  <input type="text" value={form.owner_ssn} onChange={e => setField("owner_ssn", e.target.value)}
+                    placeholder="XXX-XX-XXXX" className={inputCls} />
                 </Field>
               </div>
 
@@ -204,7 +240,7 @@ export default function NewApplication({ agent }) {
                 <tbody>
                   {subs.map((s, i) => (
                     <tr key={s.id} className={`border-b border-[#1e2130] last:border-0 ${i % 2 ? "bg-[#0a0e14]" : ""}`}>
-                      {isAdmin && <Td><span className="text-[#8892a4]">{agents[s.agent_id] || "—"}</span></Td>}
+                      {isAdmin && <Td><span className="text-[#8892a4]">{agentMap[s.agent_id] || "—"}</span></Td>}
                       <Td>{s.contact_name || "—"}</Td>
                       <Td><span className="text-[#8892a4]">{s.business_name || "—"}</span></Td>
                       <Td><span className="text-[#8892a4]">{s.client_email}</span></Td>
@@ -215,10 +251,9 @@ export default function NewApplication({ agent }) {
                       </Td>
                       <Td><span className="text-[#4a5568]">{fmt(s.created_at)}</span></Td>
                       <Td>
-                        {s.signing_url ? (
-                          <a href={s.signing_url} target="_blank" rel="noreferrer"
-                            className="text-blue-400 hover:underline text-xs">Open</a>
-                        ) : <span className="text-[#2d3748]">—</span>}
+                        {s.signing_url
+                          ? <a href={s.signing_url} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline text-xs">Open</a>
+                          : <span className="text-[#2d3748]">—</span>}
                       </Td>
                     </tr>
                   ))}
@@ -244,6 +279,10 @@ function SectionTitle({ children }) {
       <div className="flex-1 h-px bg-[#1e2130]" />
     </div>
   );
+}
+
+function GroupHeader({ children }) {
+  return <p className="text-[#8892a4] text-xs font-semibold uppercase tracking-wider -mb-1">{children}</p>;
 }
 
 function Field({ label, children, required }) {
