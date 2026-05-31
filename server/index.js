@@ -141,13 +141,13 @@ app.use('/api', requireAuth);
 app.use('/sms', requireAuth);
 
 // ── Route modules ─────────────────────────────────────────────────────────────
-app.use('/', require('./routes/calls'));
-app.use('/', require('./routes/zoho'));
-app.use('/', require('./routes/emails'));
-app.use('/', require('./routes/calendar'));
-app.use('/', require('./routes/agents'));
-app.use('/', require('./routes/leads'));
-app.use('/', require('./routes/docuseal'));
+app.use('/', require('./route-calls'));
+app.use('/', require('./route-zoho'));
+app.use('/', require('./route-emails'));
+app.use('/', require('./route-calendar'));
+app.use('/', require('./route-agents'));
+app.use('/', require('./route-leads'));
+app.use('/', require('./route-docuseal'));
 
 // ── SPA fallback ──────────────────────────────────────────────────────────────
 app.get('*', (req, res) => {
