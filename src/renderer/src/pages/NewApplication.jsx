@@ -1,23 +1,57 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
+import { supabase } from "../lib/supabaseClient";
 import { useApp } from "../context/AppContext";
 
 const API_BASE =
-  typeof navigator !== "undefined" && navigator.userAgent.toLowerCase().includes("electron")
+  typeof window !== "undefined" && window.location?.protocol === "file:"
     ? "http://localhost:3001"
     : "";
 
 const EMPTY_FORM = {
-  contact_name: "", business_name: "", client_email: "", phone: "",
-  dba: "", business_address: "", owner_address: "",
-  ein: "", time_in_business: "", dob: "", ssn: "",
+  contact_name: "", business_name: "", client_email: "",
 };
 
-export default function NewApplication() {
-  const { getAuthToken } = useApp();
+function fmt(iso) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+export default function NewApplication({ agent }) {
+  const { userId, agent: ctxAgent } = useApp();
+  const resolvedAgent = agent || ctxAgent;
+  const isAdmin = resolvedAgent?.role === "admin";
 
   const [form,       setForm]       = useState(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [submitMsg,  setSubmitMsg]  = useState(null);
+
+  const [subs,        setSubs]        = useState([]);
+  const [subsLoading, setSubsLoading] = useState(true);
+  const [agents,      setAgents]      = useState([]);
+
+  const fetchSubs = useCallback(async () => {
+    setSubsLoading(true);
+    let q = supabase
+      .from("docuseal_submissions")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (!isAdmin) q = q.eq("agent_id", userId);
+    const { data } = await q;
+    setSubs(data || []);
+    setSubsLoading(false);
+  }, [isAdmin, userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    fetchSubs();
+    if (isAdmin) {
+      supabase.from("agents").select("id, name, email").then(({ data }) => {
+        const map = {};
+        (data || []).forEach(a => { map[a.id] = a.name || a.email; });
+        setAgents(map);
+      });
+    }
+  }, [userId, fetchSubs]);
 
   function setField(key, val) {
     setForm(f => ({ ...f, [key]: val }));
@@ -25,39 +59,32 @@ export default function NewApplication() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!form.contact_name.trim() || !form.business_name.trim()) return;
+    if (!form.client_email.trim()) return;
     setSubmitting(true);
     setSubmitMsg(null);
 
     try {
-      const token = await getAuthToken();
-      const res = await fetch(`${API_BASE}/api/send-application`, {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch(`${API_BASE}/api/docuseal/send`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          businessName:      form.business_name.trim(),
-          ownerName:         form.contact_name.trim(),
-          printName:         form.contact_name.trim(),
-          dba:               form.dba.trim(),
-          businessAddress:   form.business_address.trim(),
-          ownerAddress:      form.owner_address.trim(),
-          ein:               form.ein.trim(),
-          businessStartDate: form.time_in_business.trim(),
-          ownerDOB:          form.dob.trim(),
-          ownerSS:           form.ssn.trim(),
-          clientEmail:       form.client_email.trim(),
-          phone:             form.phone.trim(),
+          clientEmail:   form.client_email.trim(),
+          contactName:   form.contact_name.trim() || null,
+          businessName:  form.business_name.trim() || null,
         }),
       });
       const json = await res.json();
       if (!res.ok) {
-        setSubmitMsg({ ok: false, msg: typeof json.error === "object" ? JSON.stringify(json.error) : json.error || `Server error ${res.status}` });
+        setSubmitMsg({ ok: false, msg: json.error || `Server error ${res.status}` });
       } else {
-        setSubmitMsg({ ok: true, msg: "Application sent to submissions inbox." });
+        setSubmitMsg({ ok: true, msg: `Application sent to ${form.client_email.trim()}.`, url: json.signingUrl });
         setForm(EMPTY_FORM);
+        fetchSubs();
       }
     } catch (err) {
       setSubmitMsg({ ok: false, msg: err.message });
@@ -66,107 +93,158 @@ export default function NewApplication() {
     setSubmitting(false);
   }
 
+  const STATUS_STYLE = {
+    sent:      "bg-[#1e2130] text-[#8892a4] border-[#2d3748]",
+    completed: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+    declined:  "bg-red-500/10 text-red-400 border-red-500/20",
+  };
+
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       <div className="flex items-center justify-between mb-6 flex-shrink-0">
         <div>
-          <h1 className="text-white text-2xl font-bold tracking-tight">Send Application</h1>
+          <h1 className="text-white text-2xl font-bold tracking-tight">Applications</h1>
           <p className="text-[#4a5568] text-sm mt-1">
-            Fill out and submit — the completed application is emailed to the submissions inbox.
+            Send a DocuSeal signing link to the client — they'll receive an email with a link to review and sign.
           </p>
         </div>
       </div>
 
-      <div className="bg-[#0d1017] border border-[#1e2130] rounded-xl p-6">
-        <form onSubmit={handleSubmit} className="space-y-5">
+      <div className="flex flex-col gap-8 pb-8">
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Owner / Contact Name" required>
-              <input type="text" value={form.contact_name} onChange={e => setField("contact_name", e.target.value)}
-                placeholder="John Smith" className={inputCls} required />
-            </Field>
-            <Field label="Business Name" required>
-              <input type="text" value={form.business_name} onChange={e => setField("business_name", e.target.value)}
-                placeholder="Acme LLC" className={inputCls} required />
-            </Field>
-          </div>
+        {/* Send form */}
+        <section>
+          <SectionTitle>Send for Signature</SectionTitle>
+          <div className="bg-[#0d1017] border border-[#1e2130] rounded-xl p-6">
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <Field label="Client Email" required>
+                  <input
+                    type="email"
+                    value={form.client_email}
+                    onChange={e => setField("client_email", e.target.value)}
+                    placeholder="client@example.com"
+                    className={inputCls}
+                    required
+                  />
+                </Field>
+                <Field label="Contact Name">
+                  <input
+                    type="text"
+                    value={form.contact_name}
+                    onChange={e => setField("contact_name", e.target.value)}
+                    placeholder="John Smith"
+                    className={inputCls}
+                  />
+                </Field>
+                <Field label="Business Name">
+                  <input
+                    type="text"
+                    value={form.business_name}
+                    onChange={e => setField("business_name", e.target.value)}
+                    placeholder="Acme LLC"
+                    className={inputCls}
+                  />
+                </Field>
+              </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Client Email">
-              <input type="email" value={form.client_email} onChange={e => setField("client_email", e.target.value)}
-                placeholder="client@example.com" className={inputCls} />
-            </Field>
-            <Field label="Phone">
-              <input type="tel" value={form.phone} onChange={e => setField("phone", e.target.value)}
-                placeholder="(555) 555-5555" className={inputCls} />
-            </Field>
+              <div className="flex items-center gap-4 pt-1">
+                <button
+                  type="submit"
+                  disabled={submitting || !form.client_email.trim()}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] text-sm font-semibold rounded-lg hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                >
+                  {submitting ? (
+                    <div className="w-4 h-4 border-2 border-[#080b10] border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                    </svg>
+                  )}
+                  {submitting ? "Sending…" : "Send Application"}
+                </button>
+                {submitMsg && (
+                  <p className={`text-sm ${submitMsg.ok ? "text-emerald-400" : "text-red-400"}`}>
+                    {submitMsg.ok ? "✓ " : "✗ "}{submitMsg.msg}
+                    {submitMsg.ok && submitMsg.url && (
+                      <> · <a href={submitMsg.url} target="_blank" rel="noreferrer" className="underline">View signing link</a></>
+                    )}
+                  </p>
+                )}
+              </div>
+            </form>
           </div>
+        </section>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="DBA (Doing Business As)">
-              <input type="text" value={form.dba} onChange={e => setField("dba", e.target.value)}
-                placeholder="Trading name if different" className={inputCls} />
-            </Field>
-            <Field label="EIN">
-              <input type="text" value={form.ein} onChange={e => setField("ein", e.target.value)}
-                placeholder="12-3456789" className={inputCls} />
-            </Field>
-          </div>
+        {/* History */}
+        <section>
+          <SectionTitle>{isAdmin ? "All Sent Applications" : "My Sent Applications"}</SectionTitle>
+          {subsLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="w-6 h-6 border-2 border-[#c9a84c] border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : subs.length === 0 ? (
+            <div className="bg-[#0d1017] border border-[#1e2130] rounded-xl p-8 text-center">
+              <p className="text-[#4a5568] text-sm">No applications sent yet.</p>
+            </div>
+          ) : (
+            <div className="bg-[#0d1017] border border-[#1e2130] rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-[#1e2130]">
+                    {isAdmin && <Th>Agent</Th>}
+                    <Th>Contact</Th>
+                    <Th>Business</Th>
+                    <Th>Email</Th>
+                    <Th>Status</Th>
+                    <Th>Sent</Th>
+                    <Th>Link</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {subs.map((s, i) => (
+                    <tr key={s.id} className={`border-b border-[#1e2130] last:border-0 ${i % 2 ? "bg-[#0a0e14]" : ""}`}>
+                      {isAdmin && <Td><span className="text-[#8892a4]">{agents[s.agent_id] || "—"}</span></Td>}
+                      <Td>{s.contact_name || "—"}</Td>
+                      <Td><span className="text-[#8892a4]">{s.business_name || "—"}</span></Td>
+                      <Td><span className="text-[#8892a4]">{s.client_email}</span></Td>
+                      <Td>
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border ${STATUS_STYLE[s.status] || STATUS_STYLE.sent}`}>
+                          {s.status}
+                        </span>
+                      </Td>
+                      <Td><span className="text-[#4a5568]">{fmt(s.created_at)}</span></Td>
+                      <Td>
+                        {s.signing_url ? (
+                          <a href={s.signing_url} target="_blank" rel="noreferrer"
+                            className="text-blue-400 hover:underline text-xs">Open</a>
+                        ) : <span className="text-[#2d3748]">—</span>}
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <Field label="Date of Birth">
-              <input type="text" value={form.dob} onChange={e => setField("dob", e.target.value)}
-                placeholder="MM/DD/YYYY" className={inputCls} />
-            </Field>
-            <Field label="SSN">
-              <input type="text" value={form.ssn} onChange={e => setField("ssn", e.target.value)}
-                placeholder="XXX-XX-XXXX" className={inputCls} />
-            </Field>
-            <Field label="Business Start Date">
-              <input type="date" value={form.time_in_business} onChange={e => setField("time_in_business", e.target.value)}
-                className={inputCls} />
-            </Field>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Business Address">
-              <input type="text" value={form.business_address} onChange={e => setField("business_address", e.target.value)}
-                placeholder="123 Main St, City, ST 00000" className={inputCls} />
-            </Field>
-            <Field label="Owner Address">
-              <input type="text" value={form.owner_address} onChange={e => setField("owner_address", e.target.value)}
-                placeholder="123 Home St, City, ST 00000" className={inputCls} />
-            </Field>
-          </div>
-
-          <div className="flex items-center gap-4 pt-2">
-            <button
-              type="submit"
-              disabled={submitting || !form.contact_name.trim() || !form.business_name.trim()}
-              className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] text-sm font-semibold rounded-lg hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-            >
-              {submitting ? (
-                <div className="w-4 h-4 border-2 border-[#080b10] border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                </svg>
-              )}
-              {submitting ? "Sending…" : "Send Application"}
-            </button>
-            {submitMsg && (
-              <p className={`text-sm ${submitMsg.ok ? "text-emerald-400" : "text-red-400"}`}>
-                {submitMsg.ok ? "✓ " : "✗ "}{submitMsg.msg}
-              </p>
-            )}
-          </div>
-        </form>
       </div>
     </div>
   );
 }
 
+// ── Shared UI ─────────────────────────────────────────────────────────────────
+
 const inputCls = "w-full bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm placeholder-[#2d3748] focus:outline-none focus:border-[#c9a84c]/40 transition-colors";
+
+function SectionTitle({ children }) {
+  return (
+    <div className="flex items-center gap-3 mb-3">
+      <p className="text-[#c9a84c] text-xs font-bold uppercase tracking-widest whitespace-nowrap">{children}</p>
+      <div className="flex-1 h-px bg-[#1e2130]" />
+    </div>
+  );
+}
 
 function Field({ label, children, required }) {
   return (
@@ -177,4 +255,12 @@ function Field({ label, children, required }) {
       {children}
     </div>
   );
+}
+
+function Th({ children }) {
+  return <th className="text-left px-4 py-3 text-[10px] font-bold text-[#4a5568] uppercase tracking-wider">{children}</th>;
+}
+
+function Td({ children }) {
+  return <td className="px-4 py-3 text-white text-xs">{children}</td>;
 }

@@ -451,11 +451,17 @@ const OFFER_EMPTY = { amount: "", factor_rate: "", term: "", position: "1st", no
 function DealDrawer({ form, setForm, isNew, agents, stages, newNote, setNewNote, onAddNote, onFileUpload, fileRef, onSave, onClose, saving, hasExistingId, isAdmin, dealId, currentUserId, onRemoveDeal, selectedDealId, onViewLead }) {
   const f = (key, val) => setForm(p => ({ ...p, [key]: val }));
 
-  const [offers,      setOffers]      = useState([]);
+  const [offers,        setOffers]        = useState([]);
   const [offersLoading, setOffersLoading] = useState(false);
-  const [offerForm,   setOfferForm]   = useState(OFFER_EMPTY);
-  const [offerSaving, setOfferSaving] = useState(false);
+  const [offerForm,     setOfferForm]     = useState(OFFER_EMPTY);
+  const [offerSaving,   setOfferSaving]   = useState(false);
   const [showOfferForm, setShowOfferForm] = useState(false);
+
+  const [subs,       setSubs]       = useState([]);
+  const [subsLoading,setSubsLoading]= useState(false);
+  const [sigEmail,   setSigEmail]   = useState("");
+  const [sigSending, setSigSending] = useState(false);
+  const [sigResult,  setSigResult]  = useState(null);
 
   useEffect(() => {
     if (!dealId) { setOffers([]); return; }
@@ -463,6 +469,41 @@ function DealDrawer({ form, setForm, isNew, agents, stages, newNote, setNewNote,
     supabase.from("offers").select("*").eq("deal_id", dealId).order("created_at", { ascending: false })
       .then(({ data }) => { setOffers(data || []); setOffersLoading(false); });
   }, [dealId]);
+
+  useEffect(() => {
+    if (!dealId) { setSubs([]); return; }
+    setSubsLoading(true);
+    supabase.from("docuseal_submissions").select("*").eq("deal_id", dealId)
+      .order("created_at", { ascending: false })
+      .then(({ data }) => { setSubs(data || []); setSubsLoading(false); });
+  }, [dealId]);
+
+  async function sendForSignature() {
+    if (!sigEmail.trim()) return;
+    setSigSending(true);
+    setSigResult(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch(`${API_BASE}/api/docuseal/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ clientEmail: sigEmail.trim(), contactName: form.contact_name, businessName: form.business_name, dealId }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        setSigResult({ ok: true, msg: `Sent to ${sigEmail.trim()}`, url: json.signingUrl });
+        setSigEmail("");
+        if (json.id) setSubs(prev => [{ id: json.id, client_email: sigEmail.trim(), signing_url: json.signingUrl, status: "sent", created_at: new Date().toISOString() }, ...prev]);
+      } else {
+        setSigResult({ ok: false, msg: json.error || "Send failed" });
+      }
+    } catch (err) {
+      setSigResult({ ok: false, msg: err.message });
+    } finally {
+      setSigSending(false);
+    }
+  }
 
   function handleCommissionCalc(key, val) {
     const updated = { ...form, [key]: val };
@@ -707,6 +748,59 @@ function DealDrawer({ form, setForm, isNew, agents, stages, newNote, setNewNote,
               </button>
             </div>
           </DrawerSection>
+
+          {hasExistingId && (
+            <DrawerSection title={`Send for Signature (${subs.length})`}>
+              {subsLoading ? (
+                <p className="text-[#4a5568] text-xs">Loading…</p>
+              ) : subs.length > 0 ? (
+                <div className="space-y-2 mb-3">
+                  {subs.map(s => (
+                    <div key={s.id} className="flex items-center justify-between gap-2 bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="text-white text-xs truncate">{s.client_email}</p>
+                        <p className="text-[#4a5568] text-[10px] mt-0.5">{new Date(s.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className={`text-[10px] px-2 py-0.5 rounded-md font-medium ${s.status === "completed" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-[#1e2130] text-[#8892a4]"}`}>
+                          {s.status}
+                        </span>
+                        {s.signing_url && (
+                          <a href={s.signing_url} target="_blank" rel="noreferrer"
+                            className="text-[10px] text-blue-400 hover:underline">Link</a>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  value={sigEmail}
+                  onChange={e => setSigEmail(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && sendForSignature()}
+                  placeholder="client@email.com"
+                  className="flex-1 bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm placeholder-[#2d3748] focus:outline-none focus:border-[#c9a84c]/40 transition-colors"
+                />
+                <button
+                  onClick={sendForSignature}
+                  disabled={!sigEmail.trim() || sigSending}
+                  className="px-3 py-2 bg-[#c9a84c] text-[#080b10] text-xs font-semibold rounded-lg hover:opacity-90 disabled:opacity-40 transition-all flex-shrink-0"
+                >
+                  {sigSending ? <div className="w-4 h-4 border-2 border-[#080b10] border-t-transparent rounded-full animate-spin" /> : "Send"}
+                </button>
+              </div>
+              {sigResult && (
+                <p className={`text-xs mt-1.5 ${sigResult.ok ? "text-emerald-400" : "text-red-400"}`}>
+                  {sigResult.ok ? "✓ " : "✗ "}{sigResult.msg}
+                  {sigResult.ok && sigResult.url && (
+                    <> · <a href={sigResult.url} target="_blank" rel="noreferrer" className="underline">View link</a></>
+                  )}
+                </p>
+              )}
+            </DrawerSection>
+          )}
 
           {hasExistingId && (
             <DrawerSection title={`Documents (${(form.docs || []).length})`}>

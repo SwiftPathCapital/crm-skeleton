@@ -121,36 +121,146 @@ function WebFields({ data, onChange }) {
 }
 
 // ── DOCUMENTS SECTION ────────────────────────────────────────────────────────
-function DocumentsSection() {
+function DocumentsSection({ lead, agent }) {
+  const fileInputRef = React.useRef(null);
+  const [docs, setDocs]           = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError]         = useState(null);
+
+  useEffect(() => {
+    fetchDocs();
+  }, [lead.id]);
+
+  async function fetchDocs() {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("lead_documents")
+      .select("*")
+      .eq("lead_id", lead.id)
+      .order("uploaded_at", { ascending: false });
+    if (!error) {
+      // Generate signed URLs for each doc
+      const withUrls = await Promise.all(
+        (data || []).map(async (doc) => {
+          const { data: signed } = await supabase.storage
+            .from("lead-documents")
+            .createSignedUrl(doc.storage_path, 3600);
+          return { ...doc, signedUrl: signed?.signedUrl || null };
+        })
+      );
+      setDocs(withUrls);
+    }
+    setLoading(false);
+  }
+
+  async function handleUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 25 * 1024 * 1024) { setError("File must be under 25 MB."); return; }
+    setUploading(true);
+    setError(null);
+    const storagePath = `${lead.id}/${Date.now()}-${file.name}`;
+    const { error: uploadErr } = await supabase.storage
+      .from("lead-documents")
+      .upload(storagePath, file);
+    if (uploadErr) { setError(uploadErr.message); setUploading(false); return; }
+    const { error: dbErr } = await supabase.from("lead_documents").insert({
+      lead_id:      lead.id,
+      agent_id:     agent?.id ?? null,
+      file_name:    file.name,
+      storage_path: storagePath,
+    });
+    if (dbErr) { setError(dbErr.message); }
+    setUploading(false);
+    e.target.value = "";
+    fetchDocs();
+  }
+
+  async function handleDelete(doc) {
+    if (!window.confirm(`Delete "${doc.file_name}"?`)) return;
+    await supabase.storage.from("lead-documents").remove([doc.storage_path]);
+    await supabase.from("lead_documents").delete().eq("id", doc.id);
+    setDocs(prev => prev.filter(d => d.id !== doc.id));
+  }
+
   return (
     <div className="col-span-2 mt-2">
       <div className="flex items-center gap-3 mb-3">
         <p className="text-emerald-400 text-xs font-bold uppercase tracking-widest">Documents</p>
         <div className="flex-1 h-px bg-[#1e2130]" />
-      </div>
-      <div className="border-2 border-dashed border-[#1e2130] rounded-xl p-6 text-center hover:border-blue-500 transition-colors cursor-pointer group">
-        <svg className="w-8 h-8 text-[#4a5568] group-hover:text-blue-400 mx-auto mb-2 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-        </svg>
-        <p className="text-[#4a5568] text-sm group-hover:text-white transition-colors">
-          Drop files here or <span className="text-blue-400">browse</span>
-        </p>
-        <p className="text-[#2d3748] text-xs mt-1">PDF, DOC, JPG up to 25MB</p>
-      </div>
-      <div className="mt-3 space-y-2">
-        <div className="flex items-center gap-3 bg-[#0f1117] border border-[#1e2130] rounded-lg px-4 py-2">
-          <svg className="w-4 h-4 text-red-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
-          </svg>
-          <span className="text-white text-xs flex-1">bank_statement_march.pdf</span>
-          <span className="text-[#4a5568] text-xs">2.4 MB</span>
-          <button className="text-[#4a5568] hover:text-red-400 transition-colors ml-2">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#1e2d4a] text-blue-400 border border-blue-500/30 hover:bg-blue-500/15 disabled:opacity-50 transition-all"
+        >
+          {uploading ? (
+            <span className="w-3 h-3 border border-blue-400 border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
             </svg>
-          </button>
-        </div>
+          )}
+          {uploading ? "Uploading…" : "Upload"}
+        </button>
+        <input ref={fileInputRef} type="file" className="hidden" onChange={handleUpload} />
       </div>
+
+      {error && <p className="text-red-400 text-xs mb-2">{error}</p>}
+
+      {loading ? (
+        <div className="flex items-center gap-2 py-4">
+          <div className="w-4 h-4 border-2 border-[#c9a84c] border-t-transparent rounded-full animate-spin" />
+          <span className="text-[#4a5568] text-xs">Loading documents…</span>
+        </div>
+      ) : docs.length === 0 ? (
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="w-full border-2 border-dashed border-[#1e2130] rounded-xl p-6 text-center hover:border-blue-500 transition-colors group"
+        >
+          <svg className="w-8 h-8 text-[#4a5568] group-hover:text-blue-400 mx-auto mb-2 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+          </svg>
+          <p className="text-[#4a5568] text-sm group-hover:text-white transition-colors">
+            Drop files here or <span className="text-blue-400">browse</span>
+          </p>
+          <p className="text-[#2d3748] text-xs mt-1">PDF, DOC, JPG up to 25MB</p>
+        </button>
+      ) : (
+        <div className="space-y-2">
+          {docs.map(doc => (
+            <div key={doc.id} className="flex items-center gap-3 bg-[#0f1117] border border-[#1e2130] rounded-lg px-4 py-2 group hover:border-[#2a3040] transition-colors">
+              <svg className="w-4 h-4 text-red-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+              </svg>
+              {doc.signedUrl ? (
+                <a
+                  href={doc.signedUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-white text-xs flex-1 truncate hover:text-blue-400 transition-colors"
+                >
+                  {doc.file_name}
+                </a>
+              ) : (
+                <span className="text-white text-xs flex-1 truncate">{doc.file_name}</span>
+              )}
+              <span className="text-[#4a5568] text-xs flex-shrink-0">
+                {new Date(doc.uploaded_at).toLocaleDateString()}
+              </span>
+              <button
+                onClick={() => handleDelete(doc)}
+                className="text-[#4a5568] hover:text-red-400 transition-colors ml-1 opacity-0 group-hover:opacity-100"
+                title="Delete"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -280,8 +390,132 @@ function NotesTab({ lead }) {
   );
 }
 
-// ── RECORDINGS TAB ───────────────────────────────────────────────────────────
+// ── SIGNATURES TAB ───────────────────────────────────────────────────────────
 const API_BASE = window.location?.protocol === "file:" ? "http://localhost:3001" : "";
+
+const SIG_STATUS_STYLE = {
+  sent:      "bg-[#1e2130] text-[#8892a4] border-[#2d3748]",
+  completed: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+  declined:  "bg-red-500/10 text-red-400 border-red-500/20",
+};
+
+function SignaturesTab({ lead, agent }) {
+  const [subs,        setSubs]        = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [email,       setEmail]       = useState(lead.email || "");
+  const [sending,     setSending]     = useState(false);
+  const [result,      setResult]      = useState(null);
+
+  useEffect(() => {
+    setLoading(true);
+    supabase.from("docuseal_submissions").select("*").eq("lead_id", lead.id)
+      .order("created_at", { ascending: false })
+      .then(({ data }) => { setSubs(data || []); setLoading(false); });
+  }, [lead.id]);
+
+  async function handleSend() {
+    if (!email.trim()) return;
+    setSending(true);
+    setResult(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const name = [lead.first_name, lead.last_name].filter(Boolean).join(" ") || null;
+      const res = await fetch(`${API_BASE}/api/docuseal/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({
+          clientEmail:   email.trim(),
+          contactName:   name,
+          businessName:  lead.company_name || null,
+          leadId:        lead.id,
+        }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        setResult({ ok: true, msg: `Sent to ${email.trim()}`, url: json.signingUrl });
+        if (json.id) setSubs(prev => [{
+          id: json.id, client_email: email.trim(), contact_name: name,
+          signing_url: json.signingUrl, status: "sent", created_at: new Date().toISOString(),
+        }, ...prev]);
+      } else {
+        setResult({ ok: false, msg: json.error || "Send failed" });
+      }
+    } catch (err) {
+      setResult({ ok: false, msg: err.message });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="col-span-2 space-y-4">
+      {/* Send form */}
+      <div className="bg-[#0f1117] border border-[#1e2130] rounded-xl p-4">
+        <p className="text-[#8892a4] text-xs font-semibold uppercase tracking-wider mb-3">Send for Signature</p>
+        <div className="flex gap-2">
+          <input
+            type="email"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleSend()}
+            placeholder="client@email.com"
+            className="flex-1 bg-[#080b10] border border-[#1e2130] rounded-lg px-3 py-2 text-white text-sm placeholder-[#2d3748] focus:outline-none focus:border-[#c9a84c]/40 transition-colors"
+          />
+          <button
+            onClick={handleSend}
+            disabled={!email.trim() || sending}
+            className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] text-xs font-semibold rounded-lg hover:opacity-90 disabled:opacity-40 transition-all flex-shrink-0"
+          >
+            {sending ? <div className="w-3.5 h-3.5 border-2 border-[#080b10] border-t-transparent rounded-full animate-spin" /> : "Send"}
+          </button>
+        </div>
+        {result && (
+          <p className={`text-xs mt-2 ${result.ok ? "text-emerald-400" : "text-red-400"}`}>
+            {result.ok ? "✓ " : "✗ "}{result.msg}
+            {result.ok && result.url && (
+              <> · <a href={result.url} target="_blank" rel="noreferrer" className="underline">View signing link</a></>
+            )}
+          </p>
+        )}
+      </div>
+
+      {/* History */}
+      {loading ? (
+        <div className="flex items-center gap-2 py-2">
+          <div className="w-4 h-4 border-2 border-[#c9a84c] border-t-transparent rounded-full animate-spin" />
+          <span className="text-[#4a5568] text-xs">Loading…</span>
+        </div>
+      ) : subs.length === 0 ? (
+        <p className="text-[#4a5568] text-sm text-center py-4">No signature requests sent yet.</p>
+      ) : (
+        <div className="space-y-2">
+          {subs.map(s => (
+            <div key={s.id} className="flex items-center gap-3 bg-[#0f1117] border border-[#1e2130] rounded-lg px-4 py-2.5">
+              <div className="flex-1 min-w-0">
+                <p className="text-white text-xs truncate">{s.client_email}</p>
+                <p className="text-[#4a5568] text-[10px] mt-0.5">
+                  {new Date(s.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                </p>
+              </div>
+              <span className={`text-[10px] px-2 py-0.5 rounded-md font-medium border ${SIG_STATUS_STYLE[s.status] || SIG_STATUS_STYLE.sent}`}>
+                {s.status}
+              </span>
+              {s.signing_url && (
+                <a href={s.signing_url} target="_blank" rel="noreferrer"
+                  className="text-blue-400 text-xs hover:underline flex-shrink-0">
+                  Link
+                </a>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── RECORDINGS TAB ───────────────────────────────────────────────────────────
 
 function fmt(secs) {
   if (!secs) return null;
@@ -661,17 +895,15 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
             </svg>
             {cbSaved ? "Scheduled!" : "Schedule Callback"}
           </button>
-          <a
-            href="https://www.swiftpathcapital.net/agent-tools"
-            target="_blank"
-            rel="noreferrer"
+          <button
+            onClick={() => setActiveTab("signatures")}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] hover:opacity-90 transition-all"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
             </svg>
-            Create Application
-          </a>
+            Send for Signature
+          </button>
           {activeTab === "details" && (
             <button
               onClick={handleSave}
@@ -704,10 +936,11 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
       {/* Tabs */}
       <div className="flex gap-1 border-b border-[#1e2130] mb-5">
         {[
-          { id: "details", label: "Details" },
-          { id: "emails", label: "Emails" },
-          { id: "notes", label: "Notes" },
+          { id: "details",    label: "Details" },
+          { id: "emails",     label: "Emails" },
+          { id: "notes",      label: "Notes" },
           { id: "recordings", label: "Recordings" },
+          { id: "signatures", label: "Signatures" },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -777,7 +1010,7 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
             <WebFields data={formData} onChange={handleChange} />
           )}
 
-          <DocumentsSection />
+          <DocumentsSection lead={lead} agent={agent} />
         </div>
       )}
 
@@ -799,6 +1032,13 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
       {activeTab === "recordings" && (
         <div className="grid grid-cols-2 gap-x-6 gap-y-4 min-w-0">
           <RecordingsTab lead={lead} />
+        </div>
+      )}
+
+      {/* Signatures tab */}
+      {activeTab === "signatures" && (
+        <div className="grid grid-cols-2 gap-x-6 gap-y-4 min-w-0">
+          <SignaturesTab lead={lead} agent={agent} />
         </div>
       )}
 
