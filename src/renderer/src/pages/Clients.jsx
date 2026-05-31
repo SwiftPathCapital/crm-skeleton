@@ -14,7 +14,7 @@ function maskPhone(phone) {
   return str.length > 2 ? str.slice(0, -2) + "••" : "••";
 }
 
-export default function Clients({ agent, onDial }) {
+export default function Clients({ agent }) {
   const isAdmin = agent?.role === "admin";
 
   const [clients, setClients]   = useState([]);
@@ -131,8 +131,9 @@ export default function Clients({ agent, onDial }) {
   });
 
   if (loading) return (
-    <div className="flex items-center justify-center h-full">
-      <div className="text-[#c9a84c] text-sm animate-pulse">Loading clients…</div>
+    <div className="flex items-center justify-center h-full gap-3">
+      <div className="w-6 h-6 border-2 border-[#c9a84c] border-t-transparent rounded-full animate-spin" />
+      <span className="text-[#4a5568] text-sm">Loading clients…</span>
     </div>
   );
 
@@ -186,6 +187,17 @@ export default function Clients({ agent, onDial }) {
             <p className="text-[#2d3748] text-xs mt-1 max-w-xs">
               {search ? "Try a different name or phone number." : "Clients are added automatically when a deal is marked Funded, or you can add them manually."}
             </p>
+            {!search && (
+              <button
+                onClick={openNew}
+                className="mt-4 flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#c9a84c] to-[#e8c96d] text-[#080b10] text-sm font-semibold rounded-lg hover:opacity-90 transition-all"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Add First Client
+              </button>
+            )}
           </div>
         </div>
       ) : (
@@ -198,7 +210,7 @@ export default function Clients({ agent, onDial }) {
                 agentName={agentName}
                 onClick={() => openClient(client)}
                 phoneDisplay={client.phone ? (isAdmin ? client.phone : maskPhone(client.phone)) : null}
-                onDial={client.phone && onDial ? () => onDial(client.phone, client.id) : undefined}
+                rawPhone={isAdmin ? client.phone : null}
               />
             ))}
           </div>
@@ -222,7 +234,7 @@ export default function Clients({ agent, onDial }) {
           saving={saving}
           hasExistingId={!!selected}
           clientId={selected?.id || null}
-          onDial={onDial}
+          isAdmin={isAdmin}
         />
       )}
     </div>
@@ -231,7 +243,7 @@ export default function Clients({ agent, onDial }) {
 
 // ── Client card ───────────────────────────────────────────────────────────────
 
-function ClientCard({ client, agentName, onClick, phoneDisplay, onDial }) {
+function ClientCard({ client, agentName, onClick, phoneDisplay, rawPhone }) {
   const amount    = client.funded_amount ? "$" + Number(client.funded_amount).toLocaleString() : null;
   const docCount  = (client.docs  || []).length;
   const noteCount = (client.notes || []).length;
@@ -281,16 +293,17 @@ function ClientCard({ client, agentName, onClick, phoneDisplay, onDial }) {
       <div className="flex items-center gap-3 mt-3 pt-3 border-t border-[#1e2130]">
         <span className="text-[10px] text-[#2d3748]">{noteCount} note{noteCount !== 1 ? "s" : ""}</span>
         <span className="text-[10px] text-[#2d3748]">{docCount} doc{docCount !== 1 ? "s" : ""}</span>
-        {onDial && (
-          <button
-            onClick={e => { e.stopPropagation(); onDial(); }}
+        {rawPhone && (
+          <a
+            href={`tel:${rawPhone}`}
+            onClick={e => e.stopPropagation()}
             className="ml-auto flex items-center gap-1 text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-md hover:bg-emerald-500/20 transition-colors"
           >
             <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
               <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
             </svg>
             Call
-          </button>
+          </a>
         )}
       </div>
     </div>
@@ -299,7 +312,7 @@ function ClientCard({ client, agentName, onClick, phoneDisplay, onDial }) {
 
 // ── Drawer ────────────────────────────────────────────────────────────────────
 
-function ClientDrawer({ form, setForm, isNew, agents, newNote, setNewNote, onAddNote, onFileUpload, fileRef, onSave, onClose, saving, hasExistingId, clientId, onDial }) {
+function ClientDrawer({ form, setForm, isNew, agents, newNote, setNewNote, onAddNote, onFileUpload, fileRef, onSave, onClose, saving, hasExistingId, clientId, isAdmin }) {
   const f = (key, val) => setForm(p => ({ ...p, [key]: val }));
   const [recordings, setRecordings]   = useState([]);
   const [recUrls, setRecUrls]         = useState({});
@@ -332,16 +345,16 @@ function ClientDrawer({ form, setForm, isNew, agents, newNote, setNewNote, onAdd
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#1e2130] flex-shrink-0">
           <h2 className="text-white font-semibold">{isNew ? "Add Client" : "Edit Client"}</h2>
           <div className="flex items-center gap-3">
-            {!isNew && form.phone && onDial && (
-              <button
-                onClick={() => onDial(form.phone, clientId)}
+            {!isNew && form.phone && isAdmin && (
+              <a
+                href={`tel:${form.phone}`}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 text-emerald-400 text-xs font-semibold rounded-lg hover:bg-emerald-500/20 transition-colors border border-emerald-500/20"
               >
                 <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
                 </svg>
                 Call Client
-              </button>
+              </a>
             )}
             <button onClick={onClose} className="text-[#4a5568] hover:text-white transition-colors">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

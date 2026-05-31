@@ -2,15 +2,14 @@ import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { dispositionStyle, dispositionLabel } from "../lib/dispositions";
 
-const SIP_AGENT_MAP = {
-  Glenn2800: "Glenn",
-  Brent2800: "Brent",
-  Jordan2800: "Jordan",
-};
+const API_BASE =
+  typeof window !== "undefined" && window.location?.protocol === "file:"
+    ? "http://localhost:3001"
+    : "";
 
-function parseSipAgent(to = "") {
+function parseSipAgent(to = "", map = {}) {
   const m = to.match(/sip:([^@]+)@/i);
-  if (m) return SIP_AGENT_MAP[m[1]] || m[1];
+  if (m) return map[m[1]] || m[1];
   return null;
 }
 
@@ -44,6 +43,8 @@ export default function AdminDashboard() {
   const [stats,         setStats]         = useState(null);
   const [agentStats,    setAgentStats]    = useState([]);
   const [statsLoading,  setStatsLoading]  = useState(true);
+  const [statsError,    setStatsError]    = useState(null);
+  const [sipAgentMap,   setSipAgentMap]   = useState({});
 
   // ── Live call board ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -51,7 +52,7 @@ export default function AdminDashboard() {
     async function poll() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        const r = await fetch(`/api/active-calls`, {
+        const r = await fetch(`${API_BASE}/api/active-calls`, {
           headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
         });
         if (r.ok && live) {
@@ -88,20 +89,30 @@ export default function AdminDashboard() {
   // ── Revenue & commission stats ─────────────────────────────────────────────
   const loadStats = useCallback(async () => {
     setStatsLoading(true);
+    setStatsError(null);
     try {
       const [
-        { data: deals  },
-        { data: offers },
-        { data: agents },
+        { data: deals,  error: dealsErr  },
+        { data: offers, error: offersErr },
+        { data: agents, error: agentsErr },
       ] = await Promise.all([
         supabase.from("deals").select("id, stage, funded_amount, commission_amount, commission_rate, assigned_agent_id"),
         supabase.from("offers").select("id, deal_id, agent_id, amount, status"),
-        supabase.from("agents").select("id, name, email"),
+        supabase.from("agents").select("id, name, email, sip_username"),
       ]);
+
+      if (dealsErr || offersErr || agentsErr) {
+        throw new Error((dealsErr || offersErr || agentsErr).message);
+      }
 
       const allDeals   = deals  || [];
       const allOffers  = offers || [];
       const allAgents  = agents || [];
+
+      // Build sip_username → agent name map for the live call board
+      const sipMap = {};
+      allAgents.forEach(a => { if (a.sip_username) sipMap[a.sip_username] = a.name || a.email; });
+      setSipAgentMap(sipMap);
 
       const fundedDeals  = allDeals.filter(d => d.stage === "funded");
       const activeDeals  = allDeals.filter(d => d.stage !== "funded" && d.stage !== "declined");
@@ -140,6 +151,9 @@ export default function AdminDashboard() {
           .filter(a => a.deals > 0 || a.offersSent > 0)
           .sort((a, b) => b.fundedAmount - a.fundedAmount)
       );
+    } catch (err) {
+      console.error("[AdminDashboard] loadStats:", err);
+      setStatsError(err.message || "Failed to load stats");
     } finally {
       setStatsLoading(false);
     }
@@ -159,7 +173,7 @@ export default function AdminDashboard() {
         entry.startTime = entry.startTime || call.start_time;
         entry.state = entry.state || call.state;
       }
-      const agent = parseSipAgent(call.to || "");
+      const agent = parseSipAgent(call.to || "", sipAgentMap);
       if (agent) { entry.agent = agent; entry.state = call.state; }
       if (!entry.state) entry.state = call.state;
     }
@@ -224,6 +238,20 @@ export default function AdminDashboard() {
       {/* ── Agent performance table ── */}
       <div className="flex-shrink-0">
         <h2 className="text-white font-semibold text-lg mb-3">Agent Performance</h2>
+        {statsError ? (
+          <div className="border border-red-500/20 bg-red-500/5 rounded-xl p-5 flex items-center justify-between gap-4">
+            <p className="text-red-400 text-sm">{statsError}</p>
+            <button
+              onClick={loadStats}
+              className="flex items-center gap-2 text-xs bg-[#1e2130] hover:bg-[#252b3d] text-[#8892a4] hover:text-white px-3 py-1.5 rounded-lg transition-colors flex-shrink-0"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Retry
+            </button>
+          </div>
+        ) : (
         <div className="border border-[#1e2130] rounded-xl overflow-hidden">
           <table className="w-full text-sm">
             <thead>
@@ -262,6 +290,7 @@ export default function AdminDashboard() {
             </tbody>
           </table>
         </div>
+        )}
       </div>
 
       {/* ── Live Call Board ── */}
