@@ -9,8 +9,19 @@ if (!process.env.OAUTH_STATE_SECRET) {
   throw new Error('[startup] OAUTH_STATE_SECRET env var is required. Set it in .env and in Railway before deploying.');
 }
 
-// db.js and route modules are required AFTER dotenv so env vars are available
-const { supabase } = require('./db');
+// Supabase clients — inlined to avoid module resolution issues on Railway
+const { createClient } = require('@supabase/supabase-js');
+const ws = require('ws');
+const supabase = createClient(
+  process.env.VITE_SUPABASE_URL,
+  process.env.VITE_SUPABASE_ANON_KEY,
+  { realtime: { transport: ws } }
+);
+const supabaseAdmin = createClient(
+  process.env.VITE_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY,
+  { realtime: { transport: ws } }
+);
 
 const app = express();
 
@@ -53,7 +64,6 @@ async function requireAuth(req, res, next) {
 
 // ── Inbound lead parser (public — registered before requireAuth) ──────────────
 // Lead vendors POST here with x-api-key; no user JWT required.
-const { supabaseAdmin } = require('./db');
 app.post('/api/leads/inbound', async (req, res) => {
   const expectedKey = process.env.INBOUND_LEADS_API_KEY;
   if (!expectedKey) {
