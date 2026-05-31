@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const axios = require('axios');
 const ws = require('ws');
 const crypto = require('crypto');
@@ -8,6 +9,11 @@ const multer = require('multer');
 const FormData = require('form-data');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+
+// Startup diagnostics — shows in Railway logs so we can debug missing files
+console.log('[startup] __dirname:', __dirname);
+console.log('[startup] dist/index.html exists:', fs.existsSync(path.join(__dirname, 'dist', 'index.html')));
+console.log('[startup] dist contents:', (() => { try { return fs.readdirSync(path.join(__dirname, 'dist')); } catch(e) { return 'MISSING: ' + e.message; } })());
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
