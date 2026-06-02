@@ -1,8 +1,11 @@
 // src/components/LeadExpandedRow.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useApp } from "../context/AppContext";
 import { LEAD_STATUSES } from "../lib/dispositions";
+
+// Statuses that suggest a callback should be scheduled
+const CALLBACK_PROMPT_STATUSES = ["Callback", "Interested", "Contacted"];
 
 function Field({ label, fieldKey, value, onChange, type = "text", fullWidth = false }) {
   return (
@@ -305,6 +308,8 @@ function NotesTab({ lead }) {
       content: text.trim(),
     });
     if (!error) {
+      // Stamp last_contacted so the age indicator updates
+      supabase.from("leads").update({ last_contacted: new Date().toISOString() }).eq("id", lead.id);
       setText("");
       fetchComments();
     }
@@ -815,10 +820,26 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
   const [agentsList, setAgentsList] = useState([]);
 
   // Callback scheduling modal
-  const [cbModal, setCbModal]   = useState(false);
-  const [cbForm,  setCbForm]    = useState({ scheduled_at: "", notes: "" });
+  const [cbModal,  setCbModal]  = useState(false);
+  const [cbForm,   setCbForm]   = useState({ scheduled_at: "", notes: "" });
   const [cbSaving, setCbSaving] = useState(false);
   const [cbSaved,  setCbSaved]  = useState(false);
+
+  // Callback prompt (shown when status changes to a follow-up-worthy status)
+  const [showCbPrompt, setShowCbPrompt] = useState(false);
+  const prevStatusRef = useRef(lead.status);
+
+  // Sequence auto-enrollment toast
+  const [seqToast, setSeqToast] = useState(null); // "Created X callbacks from sequence"
+
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    const curr = formData.status;
+    if (curr !== prev && CALLBACK_PROMPT_STATUSES.includes(curr)) {
+      setShowCbPrompt(true);
+    }
+    prevStatusRef.current = curr;
+  }, [formData.status]);
 
   async function saveCallback() {
     if (!cbForm.scheduled_at) return;
@@ -841,11 +862,7 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
 
   useEffect(() => {
     if (!isAdmin) return;
-    supabase
-      .from("agents")
-      .select("id, name")
-      .order("name")
-      .then(({ data }) => setAgentsList(data || []));
+    supabase.from("agents").select("id, name").order("name").then(({ data }) => setAgentsList(data || []));
   }, [isAdmin]);
 
   function handleChange(key, value) {
@@ -853,10 +870,47 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
     setFormData((prev) => ({ ...prev, [key]: value }));
   }
 
-  function handleSave() {
-    onSave(formData);
+  async function handleSave() {
+    const statusChanged = formData.status !== lead.status;
+    const now = new Date().toISOString();
+
+    // Stamp last_contacted if status changed to something indicating contact
+    const contactStatuses = ["Contacted", "Interested", "Callback", "App Received", "Docs Received", "Pending App & Docs", "App Sent", "App Signed"];
+    const updatedData = statusChanged && contactStatuses.includes(formData.status)
+      ? { ...formData, last_contacted: now }
+      : formData;
+
+    onSave(updatedData);
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
+
+    // Auto-enroll in follow-up sequences if status changed
+    if (statusChanged) {
+      const { data: seqs } = await supabase
+        .from("follow_up_sequences")
+        .select("*, follow_up_sequence_steps(*)")
+        .eq("trigger_status", formData.status);
+
+      if (seqs?.length > 0) {
+        const leadName = lead.company_name || [lead.first_name, lead.last_name].filter(Boolean).join(" ") || null;
+        const callbacks = seqs.flatMap(seq =>
+          (seq.follow_up_sequence_steps || []).map(step => ({
+            agent_id:     userId,
+            lead_id:      lead.id,
+            lead_phone:   lead.phone || null,
+            lead_name:    leadName,
+            scheduled_at: new Date(Date.now() + (step.day_offset || 0) * 86400000).toISOString(),
+            notes:        step.note_template || `Follow-up: ${seq.name} — Day ${step.day_offset}`,
+            completed:    false,
+          }))
+        );
+        if (callbacks.length > 0) {
+          await supabase.from("callbacks").insert(callbacks);
+          setSeqToast(`${callbacks.length} follow-up callback${callbacks.length !== 1 ? "s" : ""} scheduled from sequence`);
+          setTimeout(() => setSeqToast(null), 4000);
+        }
+      }
+    }
   }
 
   const leadTypeLabels = {
@@ -986,6 +1040,34 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
             </select>
           </div>
 
+          {/* Callback prompt — appears when status changes to a follow-up-worthy status */}
+          {showCbPrompt && (
+            <div className="col-span-2 flex items-center justify-between bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-3 gap-3">
+              <div className="flex items-center gap-2.5">
+                <svg className="w-4 h-4 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-blue-300 text-sm">
+                  Status set to <span className="font-semibold">{formData.status}</span> — schedule a follow-up?
+                </p>
+              </div>
+              <div className="flex gap-2 flex-shrink-0">
+                <button
+                  onClick={() => setShowCbPrompt(false)}
+                  className="text-xs text-[#4a5568] hover:text-white transition-colors"
+                >
+                  Dismiss
+                </button>
+                <button
+                  onClick={() => { setCbModal(true); setShowCbPrompt(false); }}
+                  className="text-xs px-3 py-1.5 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 border border-blue-500/30 rounded-lg transition-colors font-medium"
+                >
+                  Schedule Now
+                </button>
+              </div>
+            </div>
+          )}
+
           {isAdmin && agentsList.length > 0 && (
             <div className="col-span-2 flex flex-col gap-1">
               <label className="text-[#4a5568] text-xs font-semibold uppercase tracking-wider">Assign To Agent</label>
@@ -1043,6 +1125,16 @@ export default function LeadExpandedRow({ lead, onSave, onOpenEmailClient }) {
       )}
 
     </div>
+
+    {/* Sequence auto-enrollment toast */}
+    {seqToast && (
+      <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-[#c9a84c]/10 border border-[#c9a84c]/30 text-[#c9a84c] text-sm font-medium px-5 py-3 rounded-2xl shadow-2xl shadow-black/60">
+        <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        {seqToast}
+      </div>
+    )}
 
     {/* Callback scheduling modal */}
     {cbModal && (

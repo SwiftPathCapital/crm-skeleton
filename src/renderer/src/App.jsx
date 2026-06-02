@@ -15,6 +15,8 @@ import Settings from "./pages/Settings";
 import Messaging from "./pages/Messaging";
 import LiveTransfers from "./pages/LiveTransfers";
 import CallbacksPage from "./pages/CallbacksPage";
+import TodaysQueue from "./pages/TodaysQueue";
+import FollowUpSequences from "./pages/FollowUpSequences";
 import CallbackReminder from "./components/CallbackReminder";
 import Login from "./pages/Login";
 import TourGuide from "./components/TourGuide";
@@ -237,6 +239,16 @@ function AppShell() {
         <PageSlot active={activeView === "callbacks"} padded>
           <CallbacksPage />
         </PageSlot>
+
+        <PageSlot active={activeView === "todays-queue"} padded>
+          <TodaysQueue onViewLead={(leadId) => { setFocusLeadId(leadId); setActiveView("my-leads"); }} />
+        </PageSlot>
+
+        {isAdmin && (
+          <PageSlot active={activeView === "follow-up-sequences"} padded>
+            <FollowUpSequences />
+          </PageSlot>
+        )}
 
       </main>
 
