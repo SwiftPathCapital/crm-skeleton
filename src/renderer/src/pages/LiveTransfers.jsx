@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useApp } from "../context/AppContext";
+import { LEAD_STATUSES, dispositionStyle } from "../lib/dispositions";
 
 const US_STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
@@ -10,21 +11,6 @@ const US_STATES = [
   "VA","WA","WV","WI","WY","DC",
 ];
 
-const STATUS_OPTIONS = [
-  { value: "pending",   label: "Pending",           color: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30" },
-  { value: "completed", label: "Completed",          color: "bg-blue-500/20 text-blue-400 border-blue-500/30" },
-  { value: "funded",    label: "Funded",             color: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" },
-  { value: "failed",    label: "Failed / No Answer", color: "bg-red-500/20 text-red-400 border-red-500/30" },
-  { value: "credit",    label: "Credit",             color: "bg-purple-500/20 text-purple-400 border-purple-500/30" },
-];
-
-function statusStyle(val) {
-  return STATUS_OPTIONS.find(s => s.value === val)?.color ?? "bg-[#1e2130] text-[#8892a4] border-[#2d3748]";
-}
-function statusLabel(val) {
-  return STATUS_OPTIONS.find(s => s.value === val)?.label ?? val;
-}
-
 const EMPTY_FORM = {
   customer_name:    "",
   company_name:     "",
@@ -32,7 +18,7 @@ const EMPTY_FORM = {
   email:            "",
   state:            "",
   vendor_id:        "",
-  status:           "pending",
+  status:           "New",
   requested_amount: "",
   monthly_revenue:  "",
   time_in_business: "",
@@ -253,7 +239,7 @@ function TransferModal({ transfer, vendors, onClose, onSaved, isAdmin, onNavigat
             <div>
               <label className={labelCls}>Status</label>
               <select value={form.status} onChange={e => set("status", e.target.value)} className={inputCls + " cursor-pointer"}>
-                {STATUS_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                {LEAD_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
 
@@ -415,7 +401,7 @@ export default function LiveTransfers({ onNavigatePipeline }) {
           className="bg-[#1e2130] border border-[#2d3748] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#c9a84c] cursor-pointer"
         >
           <option value="all">All Statuses</option>
-          {STATUS_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+          {LEAD_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
         <select
           value={filterVendor}
@@ -465,8 +451,8 @@ export default function LiveTransfers({ onNavigatePipeline }) {
                   <td className="px-4 py-3 text-[#8892a4] whitespace-nowrap">{t.monthly_revenue || "—"}</td>
                   <td className="px-4 py-3 text-[#8892a4] whitespace-nowrap">{t.transfer_vendors?.name || "—"}</td>
                   <td className="px-4 py-3 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusStyle(t.status)}`}>
-                      {statusLabel(t.status)}
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${dispositionStyle(t.status)}`}>
+                      {t.status}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-[#4a5568] whitespace-nowrap text-xs">
