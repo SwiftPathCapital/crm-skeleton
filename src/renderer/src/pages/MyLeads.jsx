@@ -126,7 +126,7 @@ function rowToLead(cols, vendorName, userId) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function MyLeads({ leads, onSaveLead, onRefresh, onOpenEmailClient }) {
+export default function MyLeads({ leads, onSaveLead, onRefresh, onOpenEmailClient, focusLeadId, onFocusHandled }) {
   const { agent, userId } = useApp();
 
   // Add Lead drawer
@@ -259,7 +259,7 @@ export default function MyLeads({ leads, onSaveLead, onRefresh, onOpenEmailClien
         </div>
       </div>
 
-      <LeadTable leads={leads} onSaveLead={onSaveLead} onOpenEmailClient={onOpenEmailClient} onRefresh={onRefresh} />
+      <LeadTable leads={leads} onSaveLead={onSaveLead} onOpenEmailClient={onOpenEmailClient} onRefresh={onRefresh} focusLeadId={focusLeadId} onFocusHandled={onFocusHandled} />
 
       {/* ── Bulk Upload Preview Modal ───────────────────────────────────────── */}
       {uploadPreview && (

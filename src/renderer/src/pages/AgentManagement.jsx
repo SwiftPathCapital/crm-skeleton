@@ -24,7 +24,7 @@ export default function AgentManagement() {
   useEffect(() => { fetchAgents(); }, []);
 
   async function fetchAgents() {
-    const { data } = await supabase.from("agents").select("*").order("name");
+    const { data } = await supabase.from("agents").select("id, name, email, role, did, sip_username, status").order("name");
     setAgents(data || []);
     setLoading(false);
   }
@@ -115,16 +115,19 @@ export default function AgentManagement() {
     setSaving(true);
     setEditError(null);
     try {
+      const payload = {
+        name:         editForm.name,
+        email:        editForm.email,
+        role:         editForm.role,
+        did:          editForm.did          || null,
+        sip_username: editForm.sip_username || null,
+      };
+      if (editForm.sip_password.trim()) {
+        payload.sip_password = editForm.sip_password.trim();
+      }
       const { error } = await supabase
         .from("agents")
-        .update({
-          name:         editForm.name,
-          email:        editForm.email,
-          role:         editForm.role,
-          did:          editForm.did          || null,
-          sip_username: editForm.sip_username || null,
-          sip_password: editForm.sip_password || null,
-        })
+        .update(payload)
         .eq("id", editAgent.id);
       if (error) throw error;
       setSuccess(`${editForm.name} updated.`);
@@ -298,7 +301,7 @@ export default function AgentManagement() {
                 { label: "Email",        key: "email",        type: "email",    placeholder: "john@swiftpathtocapital.com" },
                 { label: "DID (Phone #)",key: "did",          type: "text",     placeholder: "+13055551234" },
                 { label: "SIP Username", key: "sip_username", type: "text",     placeholder: "john.smith" },
-                { label: "SIP Password", key: "sip_password", type: "password", placeholder: "••••••••" },
+                { label: "SIP Password", key: "sip_password", type: "password", placeholder: "Leave blank to keep current" },
               ].map((field) => (
                 <div key={field.key}>
                   <label className={labelCls}>{field.label}</label>

@@ -7,10 +7,9 @@
 //     updated_at timestamptz default now()
 //   );
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react"; // useRef used by useSaveState timer
 import { supabase } from "../lib/supabaseClient";
 import { useApp } from "../context/AppContext";
-import { CALL_DISPOSITIONS } from "../lib/dispositions";
 
 const API_BASE =
   typeof window !== "undefined" && window.location?.protocol === "file:"
@@ -134,217 +133,6 @@ function useSaveState() {
   return { saving, saved, wrap };
 }
 
-// ── 2. Call Settings ──────────────────────────────────────────────────────────
-
-function CallSection({ raw, upsert }) {
-  const [recording,    setRecording]    = useState(raw.call_recording === "true");
-  const [ringTimeout,  setRingTimeout]  = useState(raw.ring_timeout   || "30");
-  const [dispositions, setDispositions] = useState(parseJson(raw.disposition_options, CALL_DISPOSITIONS.map(d => d.value)));
-  const [newDisp,      setNewDisp]      = useState("");
-  const [editIdx,      setEditIdx]      = useState(null);
-  const [editVal,      setEditVal]      = useState("");
-  const { saving, saved, wrap } = useSaveState();
-
-  async function saveGeneral() {
-    await wrap(() => upsert({ call_recording: String(recording), ring_timeout: ringTimeout }));
-  }
-
-  async function saveDispositions(next) {
-    await upsert({ disposition_options: JSON.stringify(next) });
-    setDispositions(next);
-  }
-
-  function addDisposition() {
-    if (!newDisp.trim() || dispositions.includes(newDisp.trim())) return;
-    saveDispositions([...dispositions, newDisp.trim()]);
-    setNewDisp("");
-  }
-
-  function removeDisposition(i) {
-    saveDispositions(dispositions.filter((_, idx) => idx !== i));
-  }
-
-  function commitEdit(i) {
-    if (!editVal.trim()) { setEditIdx(null); return; }
-    const next = dispositions.map((d, idx) => idx === i ? editVal.trim() : d);
-    saveDispositions(next);
-    setEditIdx(null);
-  }
-
-  return (
-    <div>
-      <SectionHeader title="Call Settings" description="Configure recording, ring timeout, and call disposition options" />
-
-      <Card className="p-5 mb-4">
-        <CardTitle>General</CardTitle>
-        <div className="grid grid-cols-2 gap-6">
-          <Field label="Call Recording">
-            <div className="flex items-center gap-3 mt-1">
-              <Toggle checked={recording} onChange={setRecording} />
-              <span className="text-sm text-[#8892a4]">{recording ? "Enabled" : "Disabled"}</span>
-            </div>
-          </Field>
-          <Field label="Ring Timeout" hint="Seconds before call is considered unanswered">
-            <TextInput type="number" value={ringTimeout} onChange={setRingTimeout} placeholder="30" className="w-28" />
-          </Field>
-        </div>
-        <SaveButton saving={saving} saved={saved} onClick={saveGeneral} />
-      </Card>
-
-      <Card className="p-5">
-        <CardTitle>Disposition Options</CardTitle>
-        <div className="space-y-1.5 mb-4">
-          {dispositions.map((d, i) => (
-            <div key={i} className="flex items-center gap-2 group">
-              {editIdx === i ? (
-                <>
-                  <input
-                    autoFocus
-                    value={editVal}
-                    onChange={(e) => setEditVal(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") commitEdit(i); if (e.key === "Escape") setEditIdx(null); }}
-                    className="flex-1 bg-[#080b10] border border-[#c9a84c]/50 rounded-lg px-3 py-1.5 text-sm text-white outline-none"
-                  />
-                  <button onClick={() => commitEdit(i)} className="px-3 py-1.5 rounded text-xs font-semibold bg-[#c9a84c] text-[#080b10]">Save</button>
-                  <button onClick={() => setEditIdx(null)} className="px-3 py-1.5 rounded text-xs text-[#8892a4] hover:text-white">Cancel</button>
-                </>
-              ) : (
-                <>
-                  <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg bg-[#080b10] border border-[#1e2130]">
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#c9a84c]" />
-                    <span className="text-sm text-[#8892a4]">{d}</span>
-                  </div>
-                  <button onClick={() => { setEditIdx(i); setEditVal(d); }}
-                    className="opacity-0 group-hover:opacity-100 p-1.5 text-[#4a5568] hover:text-[#c9a84c] transition-all">
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                    </svg>
-                  </button>
-                  <button onClick={() => removeDisposition(i)}
-                    className="opacity-0 group-hover:opacity-100 p-1.5 text-[#4a5568] hover:text-red-400 transition-all">
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </>
-              )}
-            </div>
-          ))}
-        </div>
-
-        <div className="flex gap-2">
-          <TextInput
-            value={newDisp}
-            onChange={setNewDisp}
-            placeholder="New disposition…"
-            className="flex-1"
-          />
-          <button
-            onClick={addDisposition}
-            disabled={!newDisp.trim()}
-            className="px-4 py-2 rounded-lg text-sm font-semibold bg-[#1e2d4a] text-[#c9a84c] border border-[#2a3f6a] hover:bg-[#26376e] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-          >
-            Add
-          </button>
-        </div>
-      </Card>
-    </div>
-  );
-}
-
-// ── 4. Campaign Settings ──────────────────────────────────────────────────────
-
-const TIMEZONES = [
-  "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
-  "America/Phoenix", "America/Anchorage", "Pacific/Honolulu",
-];
-
-function CampaignSection({ raw, upsert }) {
-  const [timezone,  setTimezone]  = useState(raw.timezone        || "America/New_York");
-  const [schedStart, setSchedStart] = useState(raw.call_sched_start || "08:00");
-  const [schedEnd,   setSchedEnd]   = useState(raw.call_sched_end   || "17:00");
-  const [lists,     setLists]      = useState(parseJson(raw.lead_lists, []));
-  const [newList,   setNewList]    = useState("");
-  const { saving, saved, wrap }    = useSaveState();
-
-  async function saveSchedule() {
-    await wrap(() => upsert({ timezone, call_sched_start: schedStart, call_sched_end: schedEnd }));
-  }
-
-  async function addList() {
-    if (!newList.trim()) return;
-    const next = [...lists, { id: Date.now().toString(), name: newList.trim(), createdAt: new Date().toISOString() }];
-    await upsert({ lead_lists: JSON.stringify(next) });
-    setLists(next);
-    setNewList("");
-  }
-
-  async function removeList(id) {
-    const next = lists.filter((l) => l.id !== id);
-    await upsert({ lead_lists: JSON.stringify(next) });
-    setLists(next);
-  }
-
-  return (
-    <div>
-      <SectionHeader title="Campaign Settings" description="Configure lead lists, call schedules, and time zone" />
-
-      <Card className="p-5 mb-4">
-        <CardTitle>Call Schedule & Time Zone</CardTitle>
-        <div className="grid grid-cols-3 gap-4 mb-4">
-          <Field label="Time Zone">
-            <Select value={timezone} onChange={setTimezone}>
-              {TIMEZONES.map((tz) => <option key={tz} value={tz}>{tz.replace("_", " ")}</option>)}
-            </Select>
-          </Field>
-          <Field label="Daily Start Time">
-            <TextInput type="time" value={schedStart} onChange={setSchedStart} />
-          </Field>
-          <Field label="Daily End Time">
-            <TextInput type="time" value={schedEnd} onChange={setSchedEnd} />
-          </Field>
-        </div>
-        <SaveButton saving={saving} saved={saved} onClick={saveSchedule} />
-      </Card>
-
-      <Card className="p-5">
-        <CardTitle>Lead Lists</CardTitle>
-
-        {lists.length === 0 ? (
-          <p className="text-[#4a5568] text-sm mb-4">No lead lists configured.</p>
-        ) : (
-          <div className="space-y-2 mb-4">
-            {lists.map((l) => (
-              <div key={l.id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-[#080b10] border border-[#1e2130] group">
-                <svg className="w-4 h-4 text-[#4a5568]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
-                <span className="flex-1 text-sm text-[#8892a4]">{l.name}</span>
-                <span className="text-xs text-[#4a5568]">{new Date(l.createdAt).toLocaleDateString()}</span>
-                <button onClick={() => removeList(l.id)} className="opacity-0 group-hover:opacity-100 text-[#4a5568] hover:text-red-400 transition-all">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="flex gap-2">
-          <TextInput value={newList} onChange={setNewList} placeholder="List name…" className="flex-1" />
-          <button
-            onClick={addList}
-            disabled={!newList.trim()}
-            className="px-4 py-2 rounded-lg text-sm font-semibold bg-[#1e2d4a] text-[#c9a84c] border border-[#2a3f6a] hover:bg-[#26376e] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-          >
-            Add List
-          </button>
-        </div>
-      </Card>
-    </div>
-  );
-}
 
 // ── 5. Integrations ───────────────────────────────────────────────────────────
 
@@ -435,155 +223,10 @@ function IntegrationsSection({ raw, upsert }) {
   );
 }
 
-// ── 6. Branding ───────────────────────────────────────────────────────────────
-
-const PRESET_COLORS = ["#c9a84c", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"];
-
-function BrandingSection({ raw, upsert }) {
-  const [companyName,  setCompanyName]  = useState(raw.company_name  || "");
-  const [accentColor,  setAccentColor]  = useState(raw.accent_color  || "#c9a84c");
-  const [logoUrl,      setLogoUrl]      = useState(raw.logo_url      || "");
-  const [logoPreview,  setLogoPreview]  = useState(raw.logo_data     || raw.logo_url || "");
-  const fileRef = useRef(null);
-  const { saving, saved, wrap } = useSaveState();
-
-  function handleLogoFile(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 500_000) { alert("Logo must be under 500 KB."); return; }
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      setLogoPreview(ev.target.result);
-      setLogoUrl("");
-    };
-    reader.readAsDataURL(file);
-  }
-
-  async function saveBranding() {
-    const pairs = {
-      company_name: companyName,
-      accent_color: accentColor,
-    };
-    if (logoPreview && logoPreview.startsWith("data:")) {
-      pairs.logo_data = logoPreview;
-    } else {
-      pairs.logo_url = logoUrl;
-    }
-    await wrap(() => upsert(pairs));
-  }
-
-  return (
-    <div>
-      <SectionHeader title="Branding" description="Customize the company name, logo, and accent color" />
-
-      <Card className="p-5">
-        <div className="grid grid-cols-2 gap-8">
-          <div>
-            <Field label="Company Name">
-              <TextInput value={companyName} onChange={setCompanyName} placeholder="Swift Path Capital" />
-            </Field>
-
-            <Field label="Accent Color">
-              <div className="flex items-center gap-3 flex-wrap mt-1">
-                {PRESET_COLORS.map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => setAccentColor(c)}
-                    style={{ backgroundColor: c }}
-                    className={`w-7 h-7 rounded-full transition-all ${accentColor === c ? "ring-2 ring-offset-2 ring-offset-[#0d1017] ring-white scale-110" : "hover:scale-105"}`}
-                  />
-                ))}
-                <div className="flex items-center gap-2 ml-1">
-                  <input
-                    type="color"
-                    value={accentColor}
-                    onChange={(e) => setAccentColor(e.target.value)}
-                    className="w-7 h-7 rounded cursor-pointer bg-transparent border-0 p-0"
-                  />
-                  <span className="text-[#4a5568] text-xs font-mono">{accentColor}</span>
-                </div>
-              </div>
-            </Field>
-
-            <Field label="Logo URL" hint="Or upload a file below (max 500 KB)">
-              <TextInput
-                value={logoUrl}
-                onChange={(v) => { setLogoUrl(v); setLogoPreview(v); }}
-                placeholder="https://yourcdn.com/logo.png"
-              />
-            </Field>
-
-            <div className="mb-4">
-              <label className="block text-[#8892a4] text-xs font-semibold uppercase tracking-wide mb-1.5">Upload Logo</label>
-              <button
-                onClick={() => fileRef.current?.click()}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-[#8892a4] bg-[#080b10] border border-[#1e2130] hover:border-[#c9a84c]/40 hover:text-white transition-all"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                </svg>
-                Choose File
-              </button>
-              <input ref={fileRef} type="file" accept="image/*" onChange={handleLogoFile} className="hidden" />
-            </div>
-
-            <SaveButton saving={saving} saved={saved} onClick={saveBranding} />
-          </div>
-
-          {/* Preview */}
-          <div>
-            <label className="block text-[#8892a4] text-xs font-semibold uppercase tracking-wide mb-3">Preview</label>
-            <div className="rounded-xl border border-[#1e2130] bg-[#080b10] p-5">
-              <div className="flex items-center gap-3 mb-4">
-                {logoPreview ? (
-                  <img src={logoPreview} alt="Logo" className="h-10 w-auto object-contain" />
-                ) : (
-                  <div className="w-10 h-10 rounded-lg flex items-center justify-center text-[#080b10] font-bold text-xs"
-                    style={{ background: `linear-gradient(135deg, ${accentColor}, ${accentColor}cc)` }}>
-                    {companyName?.slice(0, 2).toUpperCase() || "CP"}
-                  </div>
-                )}
-                <span className="text-white font-semibold text-sm">{companyName || "Company Name"}</span>
-              </div>
-              <div className="flex gap-2">
-                <button className="px-3 py-1.5 rounded-lg text-xs font-semibold text-[#080b10]"
-                  style={{ background: `linear-gradient(135deg, ${accentColor}, ${accentColor}cc)` }}>
-                  Primary Button
-                </button>
-                <button className="px-3 py-1.5 rounded-lg text-xs font-medium border text-sm"
-                  style={{ borderColor: `${accentColor}40`, color: accentColor }}>
-                  Secondary
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </Card>
-    </div>
-  );
-}
 
 // ── Sidebar nav icons ─────────────────────────────────────────────────────────
 
 const SECTIONS = [
-  {
-    id: "call",
-    label: "Call Settings",
-    icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-      </svg>
-    ),
-  },
-  {
-    id: "campaign",
-    label: "Campaign Settings",
-    icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
-      </svg>
-    ),
-  },
   {
     id: "integrations",
     label: "Integrations",
@@ -593,22 +236,13 @@ const SECTIONS = [
       </svg>
     ),
   },
-  {
-    id: "branding",
-    label: "Branding",
-    icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
-      </svg>
-    ),
-  },
 ];
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function Settings() {
   const { agent } = useApp();
-  const [activeSection, setActiveSection] = useState("call");
+  const [activeSection, setActiveSection] = useState("integrations");
   const [raw,           setRaw]           = useState({});
   const [loading,       setLoading]       = useState(true);
   const [error,         setError]         = useState(null);
@@ -658,14 +292,7 @@ export default function Settings() {
   }
 
   function renderSection() {
-    const props = { raw, upsert };
-    switch (activeSection) {
-      case "call":         return <CallSection         {...props} />;
-      case "campaign":     return <CampaignSection     {...props} />;
-      case "integrations": return <IntegrationsSection {...props} />;
-      case "branding":     return <BrandingSection     {...props} />;
-      default:             return null;
-    }
+    return <IntegrationsSection raw={raw} upsert={upsert} />;
   }
 
   return (
