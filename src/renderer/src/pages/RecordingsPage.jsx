@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useApp } from "../context/AppContext";
 
 const API_BASE = window.location?.protocol === "file:" ? "http://localhost:3001" : "";
 
@@ -179,6 +180,7 @@ function RecordingRow({ rec, playing, onPlay, onStop }) {
 }
 
 export default function RecordingsPage() {
+  const { getAuthToken } = useApp();
   const [recordings, setRecordings] = useState([]);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState(null);
@@ -189,14 +191,21 @@ export default function RecordingsPage() {
   const audioRef = useRef(null);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/recordings`)
-      .then(r => r.json())
-      .then(d => {
+    (async () => {
+      try {
+        const token = await getAuthToken();
+        const r = await fetch(`${API_BASE}/api/recordings`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const d = await r.json();
         if (d.error) throw new Error(typeof d.error === "string" ? d.error : JSON.stringify(d.error));
         setRecordings(d.data || []);
-      })
-      .catch(err => setError(err.message))
-      .finally(() => setLoading(false));
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, []);
 
   // Clean up audio on unmount
