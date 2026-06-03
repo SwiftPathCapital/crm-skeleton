@@ -89,33 +89,40 @@ router.get('/api/active-calls', async (req, res) => {
 
 router.get('/api/recordings', async (req, res) => {
   try {
-    const listRes = await axios.get('https://api.telnyx.com/v2/recordings', {
-      headers: { Authorization: 'Bearer ' + API_KEY },
-      params: { 'page[size]': 50 }
-    });
-    const recordings = listRes.data?.data || [];
+    const all = [];
+    let pageNum = 1;
+    const PAGE_SIZE = 250;
+    const MAX_PAGES = 20;
 
-    const detailed = await Promise.all(
-      recordings.map(async rec => {
-        try {
-          const detailRes = await axios.get(`https://api.telnyx.com/v2/recordings/${rec.id}`, {
-            headers: { Authorization: 'Bearer ' + API_KEY }
-          });
-          const d = detailRes.data?.data || {};
-          return {
-            ...rec,
-            download_url: d.download_urls?.mp3 || d.download_url || null,
-            from: d.from || rec.from || null,
-            to:   d.to   || rec.to   || null,
-          };
-        } catch (detailErr) {
-          console.error(`[recordings] detail fetch failed for ${rec.id}:`, detailErr.message);
-          return { ...rec, download_url: null, from: null, to: null };
-        }
-      })
-    );
+    while (pageNum <= MAX_PAGES) {
+      const listRes = await axios.get('https://api.telnyx.com/v2/recordings', {
+        headers: { Authorization: 'Bearer ' + API_KEY },
+        params: { 'page[size]': PAGE_SIZE, 'page[number]': pageNum },
+      });
+      const records = listRes.data?.data || [];
+      for (const r of records) {
+        all.push({
+          id:                   r.id,
+          call_session_id:      r.call_session_id   || null,
+          call_leg_id:          r.call_leg_id        || null,
+          connection_id:        r.connection_id      || null,
+          conference_id:        r.conference_id      || null,
+          channels:             r.channels           || null,
+          source:               r.source             || null,
+          duration_millis:      r.duration_millis    || null,
+          recording_started_at: r.recording_started_at || null,
+          recording_ended_at:   r.recording_ended_at   || null,
+          download_url:         r.download_urls?.mp3   || null,
+          download_url_wav:     r.download_urls?.wav   || null,
+          created_at:           r.created_at           || null,
+        });
+      }
+      const meta = listRes.data?.meta;
+      if (!meta || pageNum >= meta.total_pages || records.length < PAGE_SIZE) break;
+      pageNum++;
+    }
 
-    res.json({ data: detailed });
+    res.json({ data: all });
   } catch (err) {
     console.error('[recordings] status:', err.response?.status);
     console.error('[recordings] body:', JSON.stringify(err.response?.data));

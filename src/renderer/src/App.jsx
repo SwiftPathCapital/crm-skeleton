@@ -17,6 +17,7 @@ import LiveTransfers from "./pages/LiveTransfers";
 import CallbacksPage from "./pages/CallbacksPage";
 import TodaysQueue from "./pages/TodaysQueue";
 import FollowUpSequences from "./pages/FollowUpSequences";
+import RecordingsPage from "./pages/RecordingsPage";
 import CallbackReminder from "./components/CallbackReminder";
 import Login from "./pages/Login";
 import TourGuide from "./components/TourGuide";
@@ -247,6 +248,12 @@ function AppShell() {
         {isAdmin && (
           <PageSlot active={activeView === "follow-up-sequences"} padded>
             <FollowUpSequences />
+          </PageSlot>
+        )}
+
+        {isAdmin && (
+          <PageSlot active={activeView === "recordings"} padded>
+            <RecordingsPage />
           </PageSlot>
         )}
 
